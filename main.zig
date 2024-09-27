@@ -91,9 +91,9 @@ pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
     const target: u32 = 36;
-    const start_year: u32 = 0;
-    const end_year: u32 = 100000;
-    const initial_divisor: u32 = 1e8;
+    const start_year: u32 = 1900;
+    const end_year: u32 = 2025;
+    const initial_divisor: u32 = 1e7;
 
     // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout);
