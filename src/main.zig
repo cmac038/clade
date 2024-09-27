@@ -97,20 +97,25 @@ inline fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
     return total + number;
 }
 
+inline fn calculatePercent(part: f32, whole: f32) f32 {
+    return (part / whole) * 100;
+}
+
 pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
-    const target: u32 = 36;
-    const start_year: u32 = 0;
-    const end_year: u32 = 100000;
+    const target: u32 = 20;
+    const start_year: u32 = 1925;
+    const end_year: u32 = 2025;
 
     // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout_file);
     var stdout = buf.writer();
 
     // accumulators
-    var count: u32 = 0;
-    var total: u32 = 0;
+    var year_count: u32 = 0;
+    var total_occurrences: u32 = 0;
+    var total_days: u32 = 0;
 
     var date = Date{
         .year = start_year,
@@ -137,29 +142,45 @@ pub fn main() !void {
                     \\| Total: {: >3} |
                     \\|============|
                     \\
-                , .{count});
-                total += count;
+                , .{year_count});
+                total_occurrences += year_count;
                 break;
             }
             try stdout.print(
                 \\|------------|
                 \\| Total: {: >3} |
                 \\|============|
+                \\
+                \\|============|
                 \\|    {}    |
                 \\|============|
                 \\
-            , .{ count, date.year });
-            total += count;
-            count = 0;
+            , .{ year_count, date.year });
+            total_occurrences += year_count;
+            year_count = 0;
         }
 
         if (date.sumDigits() == target) {
             try date.print(stdout);
-            count += 1;
+            year_count += 1;
         }
+
+        total_days += 1;
     }
 
-    try stdout.print("\nGrand Total: {}\n", .{total});
+    try stdout.print(
+        \\
+        \\--------------------------------
+        \\            Results:
+        \\--------------------------------
+        \\  Target sum:         {}
+        \\  Year range:         {}-{}
+        \\  Total occurrences:  {}
+        \\  Total days checked: {}
+        \\  Percentage:         {d:.3}%
+        \\--------------------------------
+        \\
+    , .{ target, start_year, end_year - 1, total_occurrences, total_days, calculatePercent(@as(f32, @floatFromInt(total_occurrences)), @as(f32, @floatFromInt(total_days))) });
     try buf.flush();
 }
 
