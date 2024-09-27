@@ -2,10 +2,11 @@
 //! start_year and end_year delineate the date range.
 //! Totals for each year are provided as output.
 // TODO: file output options for visualization purposes?
-// TODO: better formatting for output; horizontal, buffered output?
+// TODO: better formatting for output; horizontal output?
 
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
+const math = std.math;
 const testing = std.testing;
 
 const BigDate = struct {
@@ -66,13 +67,43 @@ const BigDate = struct {
     }
 };
 
+// Pythagorization means adding up all the individual digits
+// For example, 05/26/1987 -> 5 + 2 + 6 + 1 + 9 + 8 + 7 = 38
+//
+// recursive version
+fn pythagorizeRecursive(number: u32, divisor: u32) u32 {
+    if (divisor == 1) {
+        return number;
+    }
+    return (number / divisor) + pythagorizeRecursive(number % divisor, divisor / 10);
+}
+
+// iterative version
+fn pythagorizeIterative(input: u32, initial_divisor: u32) u32 {
+    var total: u32 = 0;
+    var number = input;
+    var divisor = initial_divisor;
+    total += (number / divisor);
+    number %= divisor;
+    while (true) {
+        if (divisor == 1) {
+            total += number;
+            break;
+        }
+        divisor /= 10;
+        total += (number / divisor);
+        number %= divisor;
+    }
+    return total;
+}
+
 pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
     const target: u32 = 36;
     const start_year: u32 = 0;
     const end_year: u32 = 100000;
-    const num_digits: u32 = 10;
+    const initial_divisor: u32 = 1e8;
 
     var buf = std.io.bufferedWriter(stdout);
     var writer = buf.writer();
@@ -121,7 +152,7 @@ pub fn main() !void {
             count = 0;
         }
 
-        if (pythagorizeIterative(date.bigDate(), num_digits) == target) {
+        if (pythagorizeRecursive(date.bigDate(), initial_divisor) == target) {
             try date.print(writer);
             count += 1;
         }
@@ -131,68 +162,49 @@ pub fn main() !void {
     try buf.flush();
 }
 
-// Pythagorization means adding up all the individual digits
-// For example, 05/26/1987 -> 5 + 2 + 6 + 1 + 9 + 8 + 7 = 38
-//
-// recursive version (cool)
-fn pythagorizeRecursive(number: u32, num_digits: u32) u32 {
-    if (num_digits == 1) {
-        return number;
-    }
-    const divisor = std.math.pow(u32, 10, num_digits - 1);
-    return (number / divisor) + pythagorizeRecursive(number % divisor, num_digits - 1);
-}
-
-// iterative version (faster)
-fn pythagorizeIterative(input: u32, num_digits: u32) u32 {
-    var total: u32 = 0;
-    var number = input;
-    var i = num_digits;
-    while (i > 0) : (i -= 1) {
-        if (i == 1) {
-            total += number;
-            continue;
-        }
-        const divisor = std.math.pow(u32, 10, i - 1);
-        total += (number / divisor);
-        number %= divisor;
-    }
-    return total;
-}
-
 // TESTING
 // pythagorizeRecursive
 test "pythagorizeRecursive 1 digit" {
     try testing.expect(pythagorizeRecursive(9, 1) == 9);
 }
 test "pythagorizeRecursive 2 digit" {
-    try testing.expect(pythagorizeRecursive(15, 2) == 6);
+    try testing.expect(pythagorizeRecursive(15, 10) == 6);
 }
 test "pythagorizeRecursive 3 digit" {
-    try testing.expect(pythagorizeRecursive(286, 3) == 16);
+    try testing.expect(pythagorizeRecursive(286, 100) == 16);
 }
 test "pythagorizeRecursive 4 digit" {
-    try testing.expect(pythagorizeRecursive(1996, 4) == 25);
+    try testing.expect(pythagorizeRecursive(1996, 1000) == 25);
 }
 test "pythagorizeRecursive 8 digit" {
-    try testing.expect(pythagorizeRecursive(19870526, 8) == 38);
+    try testing.expect(pythagorizeRecursive(19870526, 1e7) == 38);
 }
 
 // pythagorizeIterative
 test "pythagorizeIterative 1 digit" {
-    try testing.expect(pythagorizeIterative(9, 1) == 9);
+    const result = pythagorizeIterative(9, 1);
+    std.debug.print("pythagorizeIterative 1 digit: {}\n", .{result});
+    try testing.expect(result == 9);
 }
 test "pythagorizeIterative 2 digit" {
-    try testing.expect(pythagorizeIterative(15, 2) == 6);
+    const result = pythagorizeIterative(15, 10);
+    std.debug.print("pythagorizeIterative 2 digit: {}\n", .{result});
+    try testing.expect(result == 6);
 }
 test "pythagorizeIterative 3 digit" {
-    try testing.expect(pythagorizeIterative(286, 3) == 16);
+    const result = pythagorizeIterative(286, 100);
+    std.debug.print("pythagorizeIterative 3 digit: {}\n", .{result});
+    try testing.expect(result == 16);
 }
 test "pythagorizeIterative 4 digit" {
-    try testing.expect(pythagorizeIterative(1996, 4) == 25);
+    const result = pythagorizeIterative(1996, 1000);
+    std.debug.print("pythagorizeIterative 4 digit: {}\n", .{result});
+    try testing.expect(result == 25);
 }
 test "pythagorizeIterative 8 digit" {
-    try testing.expect(pythagorizeIterative(19870526, 8) == 38);
+    const result = pythagorizeIterative(19870526, 1e7);
+    std.debug.print("pythagorizeIterative 8 digit: {}\n", .{result});
+    try testing.expect(result == 38);
 }
 
 // BigDate increment
