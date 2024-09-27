@@ -5,8 +5,15 @@
 // TODO: better formatting for output; horizontal output?
 
 const std = @import("std");
-const stdout_file = std.io.getStdOut().writer();
 const testing = std.testing;
+const heap = std.heap;
+const stdout_file = std.io.getStdOut().writer();
+
+// user inputs
+// TODO: turn these into commandline args?
+const target: u32 = 36;
+const start_year: u32 = 0;
+const end_year: u32 = 100000;
 
 const Date = struct {
     year: u32,
@@ -106,18 +113,18 @@ inline fn calculatePercent(part: f32, whole: f32) f32 {
 }
 
 pub fn main() !void {
-    // user inputs
-    // TODO: turn these into commandline args?
-    const target: u32 = 36;
-    const start_year: u32 = 0;
-    const end_year: u32 = 10000;
-
     // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout_file);
     var stdout = buf.writer();
 
+    // heap-allocated list to store hits (dates that match the target sum)
+    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var hits = try std.ArrayList(Date).initCapacity(allocator, 40);
+    defer hits.deinit();
+
     // accumulators
-    var year_count: u32 = 0;
     var total_occurrences: u32 = 0;
     var total_days: u32 = 0;
 
@@ -127,46 +134,33 @@ pub fn main() !void {
         .day = 1,
     };
 
-    try stdout.print(
-        \\Dates with digits that add up to {}:
-        \\
-        \\|==============|
-        \\|     {: ^5}    |
-        \\|==============|
-        \\
-    , .{ target, date.year });
-
     while (true) {
         const is_new_year = date.increment();
         if (is_new_year) {
-            if (date.year == end_year) {
-                // don't print year if it's the last iteration
-                try stdout.print(
-                    \\|--------------|
-                    \\|  Total: {: >3}  |
-                    \\|==============|
-                    \\
-                , .{year_count});
-                total_occurrences += year_count;
-                break;
+            const year_count = hits.items.len;
+            try stdout.print(
+                \\
+                \\|==============|
+                \\|     {: ^5}    |
+                \\|==============|
+                \\
+            , .{date.year - 1});
+            for (hits.items) |hit| {
+                try stdout.print("|  {}  |\n", .{hit});
             }
             try stdout.print(
                 \\|--------------|
                 \\|  Total: {: >3}  |
                 \\|==============|
                 \\
-                \\|==============|
-                \\|     {: ^5}    |
-                \\|==============|
-                \\
-            , .{ year_count, date.year });
-            total_occurrences += year_count;
-            year_count = 0;
+            , .{year_count});
+            total_occurrences += @as(u32, @intCast(year_count));
+            if (date.year == end_year) break;
+            hits.clearRetainingCapacity();
         }
 
         if (date.sumDigits() == target) {
-            try stdout.print("|  {}  |\n", .{date});
-            year_count += 1;
+            hits.appendAssumeCapacity(date);
         }
 
         total_days += 1;
