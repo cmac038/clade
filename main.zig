@@ -60,7 +60,7 @@ const BigDate = struct {
         return (self.year * 10000) + (self.month * 100) + self.day;
     }
 
-    /// Print to stdout in the format mm/dd/yyyy
+    /// Print to writer in the format mm/dd/yyyy
     pub inline fn print(self: BigDate, writer: anytype) !void {
         try writer.print("| {:0>2}/{:0>2}/{} |\n", .{ self.month, self.day, self.year });
     }
@@ -70,11 +70,14 @@ pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
     const target: u32 = 36;
-    const start_year: u32 = 1925;
-    const end_year: u32 = 2025;
+    const start_year: u32 = 0;
+    const end_year: u32 = 100000;
     const num_digits: u32 = 10;
 
-    try stdout.print("Dates with digits that add up to {}:\n", .{target});
+    var buf = std.io.bufferedWriter(stdout);
+    var writer = buf.writer();
+
+    try writer.print("Dates with digits that add up to {}:\n", .{target});
 
     var count: u32 = 0;
     var total: u32 = 0;
@@ -84,9 +87,6 @@ pub fn main() !void {
         .month = 1,
         .day = 1,
     };
-
-    var buf = std.io.bufferedWriter(stdout);
-    var writer = buf.writer();
 
     try writer.print(
         \\|============|
@@ -107,7 +107,6 @@ pub fn main() !void {
                     \\
                 , .{count});
                 total += count;
-                try buf.flush();
                 break;
             }
             try writer.print(
@@ -128,7 +127,8 @@ pub fn main() !void {
         }
     }
 
-    try stdout.print("\nGrand Total: {}\n", .{total});
+    try writer.print("\nGrand Total: {}\n", .{total});
+    try buf.flush();
 }
 
 // Pythagorization means adding up all the individual digits
