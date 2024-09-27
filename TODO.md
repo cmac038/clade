@@ -2,7 +2,7 @@
 
 - [ ] Integrate command line args
 - [ ] Implement better output formatting
-- [ ] Add a build script
+- [x] Add a build script
 
 ## Refactoring
 

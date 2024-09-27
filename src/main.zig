@@ -5,7 +5,7 @@
 // TODO: better formatting for output; horizontal output?
 
 const std = @import("std");
-const stdout = std.io.getStdOut().writer();
+const stdout_file = std.io.getStdOut().writer();
 const testing = std.testing;
 
 const BigDate = struct {
@@ -96,8 +96,8 @@ pub fn main() !void {
     const initial_divisor: u32 = 1e7;
 
     // buffered writer for better performance
-    var buf = std.io.bufferedWriter(stdout);
-    var writer = buf.writer();
+    var buf = std.io.bufferedWriter(stdout_file);
+    var stdout = buf.writer();
 
     // accumulators
     var count: u32 = 0;
@@ -109,7 +109,7 @@ pub fn main() !void {
         .day = 1,
     };
 
-    try writer.print(
+    try stdout.print(
         \\Dates with digits that add up to {}:
         \\
         \\|============|
@@ -123,7 +123,7 @@ pub fn main() !void {
         if (is_new_year) {
             if (date.year == end_year) {
                 // don't print year if it's the last iteration
-                try writer.print(
+                try stdout.print(
                     \\|------------|
                     \\| Total: {: >3} |
                     \\|============|
@@ -132,7 +132,7 @@ pub fn main() !void {
                 total += count;
                 break;
             }
-            try writer.print(
+            try stdout.print(
                 \\|------------|
                 \\| Total: {: >3} |
                 \\|============|
@@ -145,12 +145,12 @@ pub fn main() !void {
         }
 
         if (pythagorizeRecursive(date.bigDate(), initial_divisor) == target) {
-            try date.print(writer);
+            try date.print(stdout);
             count += 1;
         }
     }
 
-    try writer.print("\nGrand Total: {}\n", .{total});
+    try stdout.print("\nGrand Total: {}\n", .{total});
     try buf.flush();
 }
 
