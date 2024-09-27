@@ -13,6 +13,15 @@ const Date = struct {
     month: u32,
     day: u32,
 
+    /// Output takes the format mm/dd/yyyy
+    /// Custom format is used for print formatting
+    pub inline fn format(self: Date, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{:0>2}/{:0>2}/{}", .{ self.month, self.day, self.year });
+    }
+
     /// Increment by one day, handling month and year turnovers
     /// Also handles leap years
     /// Return true if incrementing results in a year turnover
@@ -72,11 +81,6 @@ const Date = struct {
     pub inline fn sumDigits(self: Date) u32 {
         return sumDigitsRecursive(self.year, 10000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
-
-    /// Print to writer in the format mm/dd/yyyy
-    pub inline fn print(self: Date, writer: anytype) !void {
-        try writer.print("| {:0>2}/{:0>2}/{} |\n", .{ self.month, self.day, self.year });
-    }
 };
 
 inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
@@ -104,9 +108,9 @@ inline fn calculatePercent(part: f32, whole: f32) f32 {
 pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
-    const target: u32 = 20;
-    const start_year: u32 = 1925;
-    const end_year: u32 = 2025;
+    const target: u32 = 36;
+    const start_year: u32 = 0;
+    const end_year: u32 = 10000;
 
     // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout_file);
@@ -126,9 +130,9 @@ pub fn main() !void {
     try stdout.print(
         \\Dates with digits that add up to {}:
         \\
-        \\|============|
-        \\|    {}    |
-        \\|============|
+        \\|==============|
+        \\|     {: ^5}    |
+        \\|==============|
         \\
     , .{ target, date.year });
 
@@ -138,22 +142,22 @@ pub fn main() !void {
             if (date.year == end_year) {
                 // don't print year if it's the last iteration
                 try stdout.print(
-                    \\|------------|
-                    \\| Total: {: >3} |
-                    \\|============|
+                    \\|--------------|
+                    \\|  Total: {: >3}  |
+                    \\|==============|
                     \\
                 , .{year_count});
                 total_occurrences += year_count;
                 break;
             }
             try stdout.print(
-                \\|------------|
-                \\| Total: {: >3} |
-                \\|============|
+                \\|--------------|
+                \\|  Total: {: >3}  |
+                \\|==============|
                 \\
-                \\|============|
-                \\|    {}    |
-                \\|============|
+                \\|==============|
+                \\|     {: ^5}    |
+                \\|==============|
                 \\
             , .{ year_count, date.year });
             total_occurrences += year_count;
@@ -161,7 +165,7 @@ pub fn main() !void {
         }
 
         if (date.sumDigits() == target) {
-            try date.print(stdout);
+            try stdout.print("|  {}  |\n", .{date});
             year_count += 1;
         }
 
