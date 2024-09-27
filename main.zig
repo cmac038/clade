@@ -80,18 +80,11 @@ inline fn pythagorizeIterative(input: u32, initial_divisor: u32) u32 {
     var total: u32 = 0;
     var number = input;
     var divisor = initial_divisor;
-    total += (number / divisor);
-    number %= divisor;
-    while (true) {
-        if (divisor == 1) {
-            total += number;
-            break;
-        }
-        divisor /= 10;
+    while (divisor > 1) : (divisor /= 10) {
         total += (number / divisor);
         number %= divisor;
     }
-    return total;
+    return total + number;
 }
 
 pub fn main() !void {
