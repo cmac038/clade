@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
-const math = std.math;
 const testing = std.testing;
 
 const BigDate = struct {
@@ -16,7 +15,7 @@ const BigDate = struct {
 
     /// Increment by one day, handling month and year turnovers
     /// Return true if incrementing results in a year turnover
-    pub fn increment(this: *BigDate) bool {
+    pub inline fn increment(this: *BigDate) bool {
         this.day += 1;
         // check for turnover
         switch (this.month) {
@@ -70,16 +69,14 @@ const BigDate = struct {
 // Pythagorization means adding up all the individual digits
 // For example, 05/26/1987 -> 5 + 2 + 6 + 1 + 9 + 8 + 7 = 38
 //
-// recursive version
-fn pythagorizeRecursive(number: u32, divisor: u32) u32 {
+inline fn pythagorizeRecursive(number: u32, divisor: u32) u32 {
     if (divisor == 1) {
         return number;
     }
     return (number / divisor) + pythagorizeRecursive(number % divisor, divisor / 10);
 }
 
-// iterative version
-fn pythagorizeIterative(input: u32, initial_divisor: u32) u32 {
+inline fn pythagorizeIterative(input: u32, initial_divisor: u32) u32 {
     var total: u32 = 0;
     var number = input;
     var divisor = initial_divisor;
@@ -105,11 +102,11 @@ pub fn main() !void {
     const end_year: u32 = 100000;
     const initial_divisor: u32 = 1e8;
 
+    // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout);
     var writer = buf.writer();
 
-    try writer.print("Dates with digits that add up to {}:\n", .{target});
-
+    // accumulators
     var count: u32 = 0;
     var total: u32 = 0;
 
@@ -120,11 +117,13 @@ pub fn main() !void {
     };
 
     try writer.print(
+        \\Dates with digits that add up to {}:
+        \\
         \\|============|
         \\|    {}    |
         \\|============|
         \\
-    , .{date.year});
+    , .{ target, date.year });
 
     while (true) {
         const is_new_year = date.increment();
