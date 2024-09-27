@@ -61,8 +61,8 @@ const BigDate = struct {
     }
 
     /// Print to stdout in the format mm/dd/yyyy
-    pub inline fn print(self: BigDate) !void {
-        try stdout.print("| {:0>2}/{:0>2}/{} |\n", .{ self.month, self.day, self.year });
+    pub inline fn print(self: BigDate, writer: anytype) !void {
+        try writer.print("| {:0>2}/{:0>2}/{} |\n", .{ self.month, self.day, self.year });
     }
 };
 
@@ -70,8 +70,8 @@ pub fn main() !void {
     // user inputs
     // TODO: turn these into commandline args?
     const target: u32 = 36;
-    const start_year: u32 = 0;
-    const end_year: u32 = 100000;
+    const start_year: u32 = 1925;
+    const end_year: u32 = 2025;
     const num_digits: u32 = 10;
 
     try stdout.print("Dates with digits that add up to {}:\n", .{target});
@@ -85,7 +85,10 @@ pub fn main() !void {
         .day = 1,
     };
 
-    try stdout.print(
+    var buf = std.io.bufferedWriter(stdout);
+    var writer = buf.writer();
+
+    try writer.print(
         \\|============|
         \\|    {}    |
         \\|============|
@@ -97,16 +100,17 @@ pub fn main() !void {
         if (is_new_year) {
             if (date.year == end_year) {
                 // don't print year if it's the last iteration
-                try stdout.print(
+                try writer.print(
                     \\|------------|
                     \\| Total: {: >3} |
                     \\|============|
                     \\
                 , .{count});
                 total += count;
+                try buf.flush();
                 break;
             }
-            try stdout.print(
+            try writer.print(
                 \\|------------|
                 \\| Total: {: >3} |
                 \\|============|
@@ -119,7 +123,7 @@ pub fn main() !void {
         }
 
         if (pythagorizeIterative(date.bigDate(), num_digits) == target) {
-            try date.print();
+            try date.print(writer);
             count += 1;
         }
     }
@@ -130,7 +134,7 @@ pub fn main() !void {
 // Pythagorization means adding up all the individual digits
 // For example, 05/26/1987 -> 5 + 2 + 6 + 1 + 9 + 8 + 7 = 38
 //
-// recursive version
+// recursive version (cool)
 fn pythagorizeRecursive(number: u32, num_digits: u32) u32 {
     if (num_digits == 1) {
         return number;
@@ -139,7 +143,7 @@ fn pythagorizeRecursive(number: u32, num_digits: u32) u32 {
     return (number / divisor) + pythagorizeRecursive(number % divisor, num_digits - 1);
 }
 
-// iterative version
+// iterative version (faster)
 fn pythagorizeIterative(input: u32, num_digits: u32) u32 {
     var total: u32 = 0;
     var number = input;
