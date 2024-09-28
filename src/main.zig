@@ -8,12 +8,29 @@ const std = @import("std");
 const testing = std.testing;
 const heap = std.heap;
 const stdout_file = std.io.getStdOut().writer();
+const dprint = std.debug.print;
 
-// user inputs
-// TODO: turn these into commandline args?
-const target: u32 = 36;
-const start_year: u32 = 0;
-const end_year: u32 = 100000;
+// String statics
+const usage =
+    \\
+    \\    Usage: ./clade [target_sum] [start_year] [end_year]
+    \\      - All args must be positive integers
+    \\      - start_year < end_year
+    \\      - start_year > 1e6
+    \\      - end_year >= 1e6
+    \\
+    \\
+;
+// const errmsg = "\n> ERROR: {s} <---\n{s}";
+const errmsg = "\n> ERROR: {s} <---\n";
+
+const ArgsError = error{
+    TooManyArgs,
+    TooFewArgs,
+    YearTooBig,
+    InvalidOrder,
+    InvalidArg,
+};
 
 const Date = struct {
     year: u32,
@@ -86,7 +103,7 @@ const Date = struct {
     /// Sum up all the digits in the date
     /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
     pub inline fn sumDigits(self: Date) u32 {
-        return sumDigitsRecursive(self.year, 10000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
+        return sumDigitsRecursive(self.year, 100000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
 };
 
@@ -112,21 +129,85 @@ inline fn calculatePercent(part: f32, whole: f32) f32 {
     return (part / whole) * 100;
 }
 
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+
 pub fn main() !void {
+    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // Handle command-line args
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    var target: u32 = undefined;
+    var start_year: u32 = undefined;
+    var end_year: u32 = undefined;
+
+    // Do we have the right number of args?
+    if (args.len < 4) {
+        dprint(errmsg, .{ "Too few args!", usage });
+        return ArgsError.TooFewArgs;
+    }
+    if (args.len > 4) {
+        dprint(errmsg, .{ "Too many args!", usage });
+        return ArgsError.TooManyArgs;
+    }
+
+    // Are the args valid?
+    for (args, 1..) |arg, i| {
+        switch (i) {
+            1 => continue,
+            2 => target = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                dprint(errmsg, .{ "Invalid args!", usage });
+                return err;
+            },
+            3 => {
+                start_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                    dprint(errmsg, .{ "Invalid args!", usage });
+                    return err;
+                };
+                if (start_year > 1e6) {
+                    dprint(errmsg, .{ "start_year is too big!", usage });
+                    return ArgsError.YearTooBig;
+                }
+            },
+            4 => {
+                end_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                    dprint(errmsg, .{ "Invalid args!", usage });
+                    return err;
+                };
+                if (end_year > 1e6) {
+                    dprint(errmsg, .{ "end_year is too big!", usage });
+                    return ArgsError.YearTooBig;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    if (start_year > end_year) {
+        dprint(errmsg, .{ "start_year cannot be greater than end_year!", usage });
+        return ArgsError.InvalidOrder;
+    }
+
+    //
+    // If we made it here, args are valid!
+    //
+
     // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout_file);
     var stdout = buf.writer();
 
-    // heap-allocated list to store hits (dates that match the target sum)
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    var hits = try std.ArrayList(Date).initCapacity(allocator, 40);
-    defer hits.deinit();
-
     // accumulators
     var total_occurrences: u32 = 0;
     var total_days: u32 = 0;
+
+    // heap-allocated list to store hits (dates that match the target sum)
+    var hits = try std.ArrayList(Date).initCapacity(allocator, 40);
+    defer hits.deinit();
 
     var date = Date{
         .year = start_year,
@@ -134,10 +215,12 @@ pub fn main() !void {
         .day = 1,
     };
 
-    while (true) {
+    while (date.year != end_year) {
         const is_new_year = date.increment();
+        total_days += 1;
         if (is_new_year) {
             const year_count = hits.items.len;
+            if (year_count == 0) continue;
             try stdout.print(
                 \\
                 \\|==============|
@@ -162,8 +245,6 @@ pub fn main() !void {
         if (date.sumDigits() == target) {
             hits.appendAssumeCapacity(date);
         }
-
-        total_days += 1;
     }
 
     try stdout.print(
