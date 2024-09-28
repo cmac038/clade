@@ -6,7 +6,8 @@
 
 const std = @import("std");
 const testing = std.testing;
-const heap = std.heap;
+const fmt = std.fmt;
+const Timer = std.time.Timer;
 const stdout_file = std.io.getStdOut().writer();
 const dprint = std.debug.print;
 
@@ -21,15 +22,13 @@ const usage =
     \\
     \\
 ;
-// const errmsg = "\n> ERROR: {s} <---\n{s}";
-const errmsg = "\n> ERROR: {s} <---\n";
+const errmsg = "\n> ERROR: {s} <---\n{s}";
 
 const ArgsError = error{
     TooManyArgs,
     TooFewArgs,
     YearTooBig,
-    InvalidOrder,
-    InvalidArg,
+    StartYearGreaterThanEndYear,
 };
 
 const Date = struct {
@@ -39,11 +38,11 @@ const Date = struct {
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub inline fn format(self: Date, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
+    pub inline fn format(self: Date, comptime format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = format_string;
         _ = options;
 
-        try writer.print("{:0>2}/{:0>2}/{}", .{ self.month, self.day, self.year });
+        try writer.print("{:0>2}/{:0>2}/{: <6}", .{ self.month, self.day, self.year });
     }
 
     /// Increment by one day, handling month and year turnovers
@@ -134,7 +133,9 @@ inline fn calculatePercent(part: f32, whole: f32) f32 {
 //---------------------------------------------------------------------------------------------------------------------
 
 pub fn main() !void {
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    var timer = try Timer.start();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -161,12 +162,12 @@ pub fn main() !void {
         switch (i) {
             1 => continue,
             2 => target = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                dprint(errmsg, .{ "Invalid args!", usage });
+                dprint(errmsg, .{ "Invalid arg! target must be a positive integer.", usage });
                 return err;
             },
             3 => {
                 start_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(errmsg, .{ "Invalid args!", usage });
+                    dprint(errmsg, .{ "Invalid arg! start_year must be a positive integer.", usage });
                     return err;
                 };
                 if (start_year > 1e6) {
@@ -175,8 +176,8 @@ pub fn main() !void {
                 }
             },
             4 => {
-                end_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(errmsg, .{ "Invalid args!", usage });
+                end_year = std.fmt.parseUnsigned(u31, arg, 10) catch |err| {
+                    dprint(errmsg, .{ "Invalid arg! end_year must be a positive integer.", usage });
                     return err;
                 };
                 if (end_year > 1e6) {
@@ -190,7 +191,7 @@ pub fn main() !void {
 
     if (start_year > end_year) {
         dprint(errmsg, .{ "start_year cannot be greater than end_year!", usage });
-        return ArgsError.InvalidOrder;
+        return ArgsError.StartYearGreaterThanEndYear;
     }
 
     //
@@ -223,18 +224,18 @@ pub fn main() !void {
             if (year_count == 0) continue;
             try stdout.print(
                 \\
-                \\|==============|
-                \\|     {: ^5}    |
-                \\|==============|
+                \\|=================|
+                \\|{: ^17}|
+                \\|=================|
                 \\
             , .{date.year - 1});
             for (hits.items) |hit| {
-                try stdout.print("|  {}  |\n", .{hit});
+                try stdout.print("|   {}  |\n", .{hit});
             }
             try stdout.print(
-                \\|--------------|
-                \\|  Total: {: >3}  |
-                \\|==============|
+                \\|-----------------|
+                \\|    Total:{: >3}    |
+                \\|=================|
                 \\
             , .{year_count});
             total_occurrences += @as(u32, @intCast(year_count));
@@ -247,6 +248,7 @@ pub fn main() !void {
         }
     }
 
+    const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
         \\
         \\--------------------------------
@@ -257,9 +259,18 @@ pub fn main() !void {
         \\  Total occurrences:  {}
         \\  Total days checked: {}
         \\  Percentage:         {d:.3}%
+        \\  Elapsed time:       {d:.3}ms 
         \\--------------------------------
         \\
-    , .{ target, start_year, end_year - 1, total_occurrences, total_days, calculatePercent(@as(f32, @floatFromInt(total_occurrences)), @as(f32, @floatFromInt(total_days))) });
+    , .{
+        target,
+        start_year,
+        end_year - 1,
+        total_occurrences,
+        total_days,
+        calculatePercent(@as(f32, @floatFromInt(total_occurrences)), @as(f32, @floatFromInt(total_days))),
+        elapsed_time / std.time.ns_per_ms,
+    });
     try buf.flush();
 }
 
