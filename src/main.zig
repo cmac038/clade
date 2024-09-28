@@ -22,7 +22,7 @@ const usage =
     \\
     \\
 ;
-const errmsg = "\n> ERROR: {s} <---\n{s}";
+const error_message = "\n> ERROR: {s} <---\n{s}";
 
 const ArgsError = error{
     TooManyArgs,
@@ -38,17 +38,17 @@ const Date = struct {
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub inline fn format(self: Date, comptime format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Date, comptime format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = format_string;
         _ = options;
 
-        try writer.print("{:0>2}/{:0>2}/{: <6}", .{ self.month, self.day, self.year });
+        try writer.print("{:0>2}/{:0>2}/{:<6}", .{ self.month, self.day, self.year });
     }
 
     /// Increment by one day, handling month and year turnovers
     /// Also handles leap years
     /// Return true if incrementing results in a year turnover
-    pub inline fn increment(this: *Date) bool {
+    pub fn increment(this: *Date) bool {
         this.day += 1;
         // check for turnover
         switch (this.month) {
@@ -91,7 +91,7 @@ const Date = struct {
     /// Leap year rules:
     /// divisible by 4 == true
     /// divisible by 100 == false EXCEPT when divisible by 400
-    pub inline fn isLeapYear(self: Date) bool {
+    pub fn isLeapYear(self: Date) bool {
         if (self.year % 100 == 0) {
             if (self.year % 400 == 0) return true;
             return false;
@@ -101,32 +101,10 @@ const Date = struct {
 
     /// Sum up all the digits in the date
     /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
-    pub inline fn sumDigits(self: Date) u32 {
+    pub fn sumDigits(self: Date) u32 {
         return sumDigitsRecursive(self.year, 100000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
 };
-
-inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
-    if (divisor == 1) {
-        return number;
-    }
-    return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
-}
-
-inline fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
-    var total: u32 = 0;
-    var number = input;
-    var divisor = initial_divisor;
-    while (divisor > 1) : (divisor /= 10) {
-        total += (number / divisor);
-        number %= divisor;
-    }
-    return total + number;
-}
-
-inline fn calculatePercent(part: f32, whole: f32) f32 {
-    return (part / whole) * 100;
-}
 
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
@@ -149,11 +127,11 @@ pub fn main() !void {
 
     // Do we have the right number of args?
     if (args.len < 4) {
-        dprint(errmsg, .{ "Too few args!", usage });
+        dprint(error_message, .{ "Too few args!", usage });
         return ArgsError.TooFewArgs;
     }
     if (args.len > 4) {
-        dprint(errmsg, .{ "Too many args!", usage });
+        dprint(error_message, .{ "Too many args!", usage });
         return ArgsError.TooManyArgs;
     }
 
@@ -162,26 +140,26 @@ pub fn main() !void {
         switch (i) {
             1 => continue,
             2 => target = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                dprint(errmsg, .{ "Invalid arg! target must be a positive integer.", usage });
+                dprint(error_message, .{ "Invalid arg! target must be a positive integer.", usage });
                 return err;
             },
             3 => {
                 start_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(errmsg, .{ "Invalid arg! start_year must be a positive integer.", usage });
+                    dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
                     return err;
                 };
                 if (start_year > 1e6) {
-                    dprint(errmsg, .{ "start_year is too big!", usage });
+                    dprint(error_message, .{ "start_year is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
             4 => {
                 end_year = std.fmt.parseUnsigned(u31, arg, 10) catch |err| {
-                    dprint(errmsg, .{ "Invalid arg! end_year must be a positive integer.", usage });
+                    dprint(error_message, .{ "Invalid arg! end_year must be a positive integer.", usage });
                     return err;
                 };
                 if (end_year > 1e6) {
-                    dprint(errmsg, .{ "end_year is too big!", usage });
+                    dprint(error_message, .{ "end_year is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
@@ -190,7 +168,7 @@ pub fn main() !void {
     }
 
     if (start_year > end_year) {
-        dprint(errmsg, .{ "start_year cannot be greater than end_year!", usage });
+        dprint(error_message, .{ "start_year cannot be greater than end_year!", usage });
         return ArgsError.StartYearGreaterThanEndYear;
     }
 
@@ -221,11 +199,12 @@ pub fn main() !void {
         total_days += 1;
         if (is_new_year) {
             const year_count = hits.items.len;
+            // skip years with no hits
             if (year_count == 0) continue;
             try stdout.print(
                 \\
                 \\|=================|
-                \\|{: ^17}|
+                \\|{:^17}|
                 \\|=================|
                 \\
             , .{date.year - 1});
@@ -234,7 +213,7 @@ pub fn main() !void {
             }
             try stdout.print(
                 \\|-----------------|
-                \\|    Total:{: >3}    |
+                \\|    Total:{:>3}    |
                 \\|=================|
                 \\
             , .{year_count});
@@ -247,6 +226,9 @@ pub fn main() !void {
             hits.appendAssumeCapacity(date);
         }
     }
+
+    // an extra day will be counted for the final year; fix that here
+    total_days -= 1;
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
@@ -268,11 +250,41 @@ pub fn main() !void {
         end_year - 1,
         total_occurrences,
         total_days,
-        calculatePercent(@as(f32, @floatFromInt(total_occurrences)), @as(f32, @floatFromInt(total_days))),
+        calculatePercentFromInt(total_occurrences, total_days),
         elapsed_time / std.time.ns_per_ms,
     });
     try buf.flush();
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+
+inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
+    if (divisor == 1) {
+        return number;
+    }
+    return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
+}
+
+fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
+    var total: u32 = 0;
+    var number = input;
+    var divisor = initial_divisor;
+    while (divisor > 1) : (divisor /= 10) {
+        total += (number / divisor);
+        number %= divisor;
+    }
+    return total + number;
+}
+
+fn calculatePercentFromInt(part: u32, whole: u32) f32 {
+    return (@as(f32, @floatFromInt(part)) / @as(f32, @floatFromInt(whole))) * 100;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
 
 // TESTING
 // sumDigitsRecursive
