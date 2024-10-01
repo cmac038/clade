@@ -14,11 +14,13 @@ const dprint = std.debug.print;
 // String statics
 const usage =
     \\
-    \\    Usage: ./clade [target_sum] [start_year] [end_year]
-    \\      - All args must be positive integers
-    \\      - start_year < end_year
-    \\      - start_year > 1e6
-    \\      - end_year >= 1e6
+    \\    Usage: 
+    \\      clade [date (mm/dd/yyyy format)]
+    \\      clade [target_sum] [start_year] [end_year]
+    \\          - All args must be positive integers
+    \\          - start_year < end_year
+    \\          - start_year > 1e6
+    \\          - end_year >= 1e6
     \\
     \\
 ;
@@ -29,6 +31,7 @@ const ArgsError = error{
     TooFewArgs,
     YearTooBig,
     StartYearGreaterThanEndYear,
+    InvalidDateFormat,
 };
 
 const Date = struct {
@@ -113,6 +116,10 @@ const Date = struct {
 pub fn main() !void {
     var timer = try Timer.start();
 
+    // buffered writer for better performance
+    var buf = std.io.bufferedWriter(stdout_file);
+    var stdout = buf.writer();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -125,6 +132,45 @@ pub fn main() !void {
     var start_year: u32 = undefined;
     var end_year: u32 = undefined;
 
+    // no args: print Usage and exit
+    if (args.len == 1) {
+        try stdout.print("{s}", .{usage});
+        try buf.flush();
+        return;
+    }
+
+    // single arg: calculate sumDigit for one date
+    if (args.len == 2) {
+        var date_breakdown = std.ArrayList(u32).init(allocator);
+        defer date_breakdown.deinit();
+        const input: []const u8 = args[1];
+        var it = std.mem.tokenizeScalar(u8, input, '/');
+        while (it.next()) |date_frag| {
+            const parsed_date_frag: u32 = std.fmt.parseUnsigned(u32, date_frag, 10) catch |err| {
+                dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+                return err;
+            };
+            try date_breakdown.append(parsed_date_frag);
+        }
+        if (date_breakdown.items.len != 3) {
+            dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+            return ArgsError.InvalidDateFormat;
+        }
+        var date_to_sum: Date = undefined;
+        for (date_breakdown.items, 0..) |item, i| {
+            switch (i) {
+                0 => date_to_sum.month = item,
+                1 => date_to_sum.day = item,
+                2 => date_to_sum.year = item,
+                else => unreachable,
+            }
+        }
+        try stdout.print("Sum of digits in {s}:  {}\n", .{ date_to_sum, date_to_sum.sumDigits() });
+        try buf.flush();
+        return;
+    }
+
+    // multiple args: calculate and print number of dates that add up to target between start_year and target_year
     // Do we have the right number of args?
     if (args.len < 4) {
         dprint(error_message, .{ "Too few args!", usage });
@@ -175,10 +221,6 @@ pub fn main() !void {
     //
     // If we made it here, args are valid!
     //
-
-    // buffered writer for better performance
-    var buf = std.io.bufferedWriter(stdout_file);
-    var stdout = buf.writer();
 
     // accumulators
     var total_occurrences: u32 = 0;
