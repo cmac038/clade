@@ -197,10 +197,10 @@ pub fn main() !void {
     while (date.year != end_year) {
         const is_new_year = date.increment();
         total_days += 1;
-        if (is_new_year) {
+        if (is_new_year) new_year: {
             const year_count = hits.items.len;
             // skip years with no hits
-            if (year_count == 0) continue;
+            if (year_count == 0) break :new_year;
             try stdout.print(
                 \\
                 \\|=================|
