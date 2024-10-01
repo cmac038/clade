@@ -27,7 +27,7 @@
     - e.g. 08/21/1996 -> [_]u8{1, 9, 9, 6, 8, 2, 1}
 - [x] Make pythagorize functions BigDate methods? <-- delegator method calls pythagorize algo
 - [ ] Factor date parser into a fn
-- [ ] Put the print lists back on the stack
+- [x] Put the print lists back on the stack
 
 ## Notes
 

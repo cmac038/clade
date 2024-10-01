@@ -223,12 +223,12 @@ pub fn main() !void {
     //
 
     // accumulators
+    var year_count: u32 = 0;
     var total_occurrences: u32 = 0;
     var total_days: u32 = 0;
 
-    // heap-allocated list to store hits (dates that match the target sum)
-    var hits = try std.ArrayList(Date).initCapacity(allocator, 40);
-    defer hits.deinit();
+    // array to store hits (dates that match the target sum)
+    var hits: [36]Date = undefined;
 
     var date = Date{
         .year = start_year,
@@ -240,7 +240,6 @@ pub fn main() !void {
         const is_new_year = date.increment();
         total_days += 1;
         if (is_new_year) new_year: {
-            const year_count = hits.items.len;
             // skip years with no hits
             if (year_count == 0) break :new_year;
             try stdout.print(
@@ -250,8 +249,8 @@ pub fn main() !void {
                 \\|=================|
                 \\
             , .{date.year - 1});
-            for (hits.items) |hit| {
-                try stdout.print("|   {}  |\n", .{hit});
+            for (0..year_count) |i| {
+                try stdout.print("|   {}  |\n", .{hits[i]});
             }
             try stdout.print(
                 \\|-----------------|
@@ -259,13 +258,14 @@ pub fn main() !void {
                 \\|=================|
                 \\
             , .{year_count});
-            total_occurrences += @as(u32, @intCast(year_count));
+            total_occurrences += year_count;
+            year_count = 0;
             if (date.year == end_year) break;
-            hits.clearRetainingCapacity();
         }
 
         if (date.sumDigits() == target) {
-            hits.appendAssumeCapacity(date);
+            hits[year_count] = date;
+            year_count += 1;
         }
     }
 
