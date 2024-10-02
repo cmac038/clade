@@ -3,9 +3,8 @@
 - [x] Integrate command line args
 - [ ] Implement better output formatting
 - [x] Add a build script
-- [x] Default behavior with no args: display usage and exit
-- [ ] Helper module for reading commandline input and subcommands
-- [ ] Target can be a number or a date
+- [ ] Helper module for reading commandline input
+- [x] Input a date instead of target number
 
 ## Calculations
 
@@ -14,12 +13,11 @@
 - [ ] Tarot
 - [ ] Astrology filter for all clade calc
 
-## Commands
+## Behavior
 
-- [x] Default: calculate sum of digits for a single date
-- [ ] show: output all dates summing to target for a single year
-- [ ] range: no print version w/ associated subcommand
-- [ ] show-range: current functionality
+- [x] no args: print usage and exit
+- [ ] target_date, start_year, end_year: print results
+- [ ] -p: print all dates that match + results
 
 ## Refactoring
 

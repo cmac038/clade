@@ -15,9 +15,8 @@ const dprint = std.debug.print;
 const usage =
     \\
     \\    Usage: 
-    \\      clade [date (mm/dd/yyyy format)]
-    \\      clade [target_sum] [start_year] [end_year]
-    \\          - All args must be positive integers
+    \\      clade [target_date (mm/dd/yyyy)] [start_year] [end_year]
+    \\          - start_year & end_year must be positive integers
     \\          - start_year < end_year
     \\          - start_year > 1e6
     \\          - end_year >= 1e6
@@ -127,6 +126,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
+    var target_date: Date = undefined;
     var target: u32 = undefined;
     var start_year: u32 = undefined;
     var end_year: u32 = undefined;
@@ -138,15 +138,6 @@ pub fn main() !void {
         return;
     }
 
-    // single arg: calculate sumDigit for one date
-    if (args.len == 2) {
-        const date_to_sum: Date = try parseDate(allocator, args[1]);
-        try stdout.print("Sum of digits in {s}:  {}\n", .{ date_to_sum, date_to_sum.sumDigits() });
-        try buf.flush();
-        return;
-    }
-
-    // multiple args: calculate and print number of dates that add up to target between start_year and target_year
     // do we have the right number of args?
     if (args.len < 4) {
         dprint(error_message, .{ "Too few args!", usage });
@@ -161,9 +152,9 @@ pub fn main() !void {
     for (args, 1..) |arg, i| {
         switch (i) {
             1 => continue,
-            2 => target = fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                dprint(error_message, .{ "Invalid arg! target must be a positive integer.", usage });
-                return err;
+            2 => {
+                target_date = try parseDate(allocator, arg);
+                target = target_date.sumDigits();
             },
             3 => {
                 start_year = fmt.parseUnsigned(u32, arg, 10) catch |err| {
@@ -219,7 +210,6 @@ pub fn main() !void {
             // skip years with no hits
             if (year_count == 0) break :new_year;
             try stdout.print(
-                \\
                 \\|=================|
                 \\|{:^17}|
                 \\|=================|
@@ -232,6 +222,7 @@ pub fn main() !void {
                 \\|-----------------|
                 \\|    Total:{:>3}    |
                 \\|=================|
+                \\
                 \\
             , .{year_count});
             total_occurrences += year_count;
@@ -250,20 +241,23 @@ pub fn main() !void {
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
-        \\
         \\--------------------------------
         \\            Results:
         \\--------------------------------
+        \\  Target date:        {}
         \\  Target sum:         {}
+        \\  Life path #:        {}
         \\  Year range:         {}-{}
         \\  Total occurrences:  {}
         \\  Total days checked: {}
-        \\  Percentage:         {d:.3}%
+        \\  Percentage:         {d:.4}%
         \\  Elapsed time:       {d:.3}ms 
         \\--------------------------------
         \\
     , .{
+        target_date,
         target,
+        sumDigitsIterative(target, 10),
         start_year,
         end_year - 1,
         total_occurrences,
@@ -349,53 +343,89 @@ fn parseDate(allocator: std.mem.Allocator, input: []const u8) !Date {
 // TESTING
 // sumDigitsRecursive
 test "sumDigitsRecursive 1 digit" {
-    try testing.expect(sumDigitsRecursive(9, 1) == 9);
+    try testing.expectEqual(9, sumDigitsRecursive(9, 1));
 }
 test "sumDigitsRecursive 2 digit" {
-    try testing.expect(sumDigitsRecursive(15, 10) == 6);
+    try testing.expectEqual(6, sumDigitsRecursive(15, 10));
 }
 test "sumDigitsRecursive 3 digit" {
-    try testing.expect(sumDigitsRecursive(286, 100) == 16);
+    try testing.expectEqual(16, sumDigitsRecursive(286, 100));
 }
 test "sumDigitsRecursive 4 digit" {
-    try testing.expect(sumDigitsRecursive(1996, 1000) == 25);
+    try testing.expectEqual(25, sumDigitsRecursive(1996, 1000));
 }
 test "sumDigitsRecursive 8 digit" {
-    try testing.expect(sumDigitsRecursive(19870526, 1e7) == 38);
+    try testing.expectEqual(38, sumDigitsRecursive(19870526, 1e7));
 }
 
 // sumDigitsIterative
 test "sumDigitsIterative 1 digit" {
-    try testing.expect(sumDigitsIterative(9, 1) == 9);
+    try testing.expectEqual(9, sumDigitsIterative(9, 1));
 }
 test "sumDigitsIterative 2 digit" {
-    try testing.expect(sumDigitsIterative(15, 10) == 6);
+    try testing.expectEqual(6, sumDigitsIterative(15, 10));
 }
 test "sumDigitsIterative 3 digit" {
-    try testing.expect(sumDigitsIterative(286, 100) == 16);
+    try testing.expectEqual(16, sumDigitsIterative(286, 100));
 }
 test "sumDigitsIterative 4 digit" {
-    try testing.expect(sumDigitsIterative(1996, 1000) == 25);
+    try testing.expectEqual(25, sumDigitsIterative(1996, 1000));
 }
 test "sumDigitsIterative 8 digit" {
-    try testing.expect(sumDigitsIterative(19870526, 1e7) == 38);
+    try testing.expectEqual(38, sumDigitsIterative(19870526, 1e7));
+}
+
+// parseDate
+test "parseDate 1" {
+    const allocator = testing.allocator;
+    const date = Date{ .year = 2023, .month = 10, .day = 7 };
+    const parsed_date = try parseDate(allocator, "10/7/2023");
+    try testing.expectEqualDeep(date, parsed_date);
+}
+test "parseDate 2" {
+    const allocator = testing.allocator;
+    const date = Date{ .year = 2023, .month = 10, .day = 7 };
+    const parsed_date = try parseDate(allocator, "10/07/2023");
+    try testing.expectEqualDeep(date, parsed_date);
+}
+test "parseDate 3" {
+    const allocator = testing.allocator;
+    const date = Date{ .year = 2023, .month = 1, .day = 7 };
+    const parsed_date = try parseDate(allocator, "1/7/2023");
+    try testing.expectEqualDeep(date, parsed_date);
+}
+test "parseDate 4" {
+    const allocator = testing.allocator;
+    const date = Date{ .year = 2023, .month = 1, .day = 7 };
+    const parsed_date = try parseDate(allocator, "1/07/2023");
+    try testing.expectEqualDeep(date, parsed_date);
+}
+test "parseDate 5" {
+    const allocator = testing.allocator;
+    const date = Date{ .year = 2023, .month = 1, .day = 7 };
+    const parsed_date = try parseDate(allocator, "01/07/2023");
+    try testing.expectEqualDeep(date, parsed_date);
+}
+test "parseDate 6" {
+    const allocator = testing.allocator;
+    try testing.expectError(ArgsError.InvalidDateFormat, parseDate(allocator, "01/17"));
 }
 
 // Date isLeapYear
 test "Date isLeapYear divisible by 4 (true)" {
-    var date = Date{ .year = 2024, .month = 8, .day = 5 };
+    const date = Date{ .year = 2024, .month = 8, .day = 5 };
     try testing.expect(date.isLeapYear());
 }
 test "Date isLeapYear divisible by 400 (true)" {
-    var date = Date{ .year = 2000, .month = 8, .day = 5 };
+    const date = Date{ .year = 2000, .month = 8, .day = 5 };
     try testing.expect(date.isLeapYear());
 }
 test "Date isLeapYear divisible by 100 (false)" {
-    var date = Date{ .year = 2100, .month = 8, .day = 5 };
+    const date = Date{ .year = 2100, .month = 8, .day = 5 };
     try testing.expect(!date.isLeapYear());
 }
 test "Date isLeapYear (false)" {
-    var date = Date{ .year = 2022, .month = 8, .day = 5 };
+    const date = Date{ .year = 2022, .month = 8, .day = 5 };
     try testing.expect(!date.isLeapYear());
 }
 
@@ -457,18 +487,18 @@ test "Date increment year" {
 
 // Date sumDigits
 test "Date sumDigits 12/31/1950" {
-    var date = Date{
+    const date = Date{
         .year = 1950,
         .month = 12,
         .day = 31,
     };
-    try testing.expect(date.sumDigits() == 22);
+    try testing.expectEqual(22, date.sumDigits());
 }
 test "Date sumDigits 08/21/1996" {
-    var date = Date{
+    const date = Date{
         .year = 1996,
         .month = 8,
         .day = 21,
     };
-    try testing.expect(date.sumDigits() == 36);
+    try testing.expectEqual(36, date.sumDigits());
 }
