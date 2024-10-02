@@ -1,25 +1,27 @@
 //! This program outputs dates which add up to a target number.
 //! start_year and end_year delineate the date range.
-//! Totals for each year are provided as output.
-// TODO: file output options for visualization purposes?
+//! Totals for each year are provided as output if requested.
 // TODO: better formatting for output; horizontal output?
 
 const std = @import("std");
 const testing = std.testing;
 const fmt = std.fmt;
 const time = std.time;
+const mem = std.mem;
 const stdout_file = std.io.getStdOut().writer();
 const dprint = std.debug.print;
 
-// String statics
+// string statics
 const usage =
     \\
     \\    Usage: 
-    \\      clade [target_date (mm/dd/yyyy)] [start_year] [end_year]
-    \\          - start_year & end_year must be positive integers
-    \\          - start_year < end_year
-    \\          - start_year > 1e6
-    \\          - end_year >= 1e6
+    \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
+    \\          - TARGET_DATE must be in mm/dd/yyyy form
+    \\          - START_YEAR & END_YEAR must be positive integers
+    \\          - START_YEAR < END_YEAR
+    \\          - START_YEAR < 1e6
+    \\          - END_YEAR <= 1e6
+    \\          - Include -p to print all matching dates
     \\
     \\
 ;
@@ -31,6 +33,7 @@ const ArgsError = error{
     YearTooBig,
     StartYearGreaterThanEndYear,
     InvalidDateFormat,
+    InvalidFlag,
 };
 
 const Date = struct {
@@ -122,7 +125,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // handle command-line args
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -130,64 +132,35 @@ pub fn main() !void {
     var target: u32 = undefined;
     var start_year: u32 = undefined;
     var end_year: u32 = undefined;
+    var print_flag: bool = false;
 
-    // no args: print Usage and exit
-    if (args.len == 1) {
-        try stdout.print("{s}", .{usage});
-        try buf.flush();
-        return;
+    // handle commandline args
+    switch (args.len) {
+        1 => {
+            try stdout.print("{s}", .{usage});
+            try buf.flush();
+            return;
+        },
+        2, 3 => {
+            dprint(error_message, .{ "Too few args!", usage });
+            return ArgsError.TooFewArgs;
+        },
+        4 => {
+            target_date = try parseArgs(allocator, args[1..], &target, &start_year, &end_year);
+        },
+        5 => {
+            if (!mem.eql(u8, args[1], "-p")) {
+                dprint(error_message, .{ "Invalid flag format!", usage });
+                return ArgsError.InvalidFlag;
+            }
+            target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
+            print_flag = true;
+        },
+        else => {
+            dprint(error_message, .{ "Too many args!", usage });
+            return ArgsError.TooManyArgs;
+        },
     }
-
-    // do we have the right number of args?
-    if (args.len < 4) {
-        dprint(error_message, .{ "Too few args!", usage });
-        return ArgsError.TooFewArgs;
-    }
-    if (args.len > 4) {
-        dprint(error_message, .{ "Too many args!", usage });
-        return ArgsError.TooManyArgs;
-    }
-
-    // are the args valid?
-    for (args, 1..) |arg, i| {
-        switch (i) {
-            1 => continue,
-            2 => {
-                target_date = try parseDate(allocator, arg);
-                target = target_date.sumDigits();
-            },
-            3 => {
-                start_year = fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
-                    return err;
-                };
-                if (start_year > 1e6) {
-                    dprint(error_message, .{ "start_year is too big!", usage });
-                    return ArgsError.YearTooBig;
-                }
-            },
-            4 => {
-                end_year = fmt.parseUnsigned(u31, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! end_year must be a positive integer.", usage });
-                    return err;
-                };
-                if (end_year > 1e6) {
-                    dprint(error_message, .{ "end_year is too big!", usage });
-                    return ArgsError.YearTooBig;
-                }
-            },
-            else => unreachable,
-        }
-    }
-
-    if (start_year > end_year) {
-        dprint(error_message, .{ "start_year cannot be greater than end_year!", usage });
-        return ArgsError.StartYearGreaterThanEndYear;
-    }
-
-    //
-    // if we made it here, args are valid!
-    //
 
     // accumulators
     var year_count: u32 = 0;
@@ -204,40 +177,22 @@ pub fn main() !void {
     };
 
     while (date.year != end_year) {
-        const is_new_year = date.increment();
-        total_days += 1;
-        if (is_new_year) new_year: {
-            // skip years with no hits
-            if (year_count == 0) break :new_year;
-            try stdout.print(
-                \\|=================|
-                \\|{:^17}|
-                \\|=================|
-                \\
-            , .{date.year - 1});
-            for (0..year_count) |i| {
-                try stdout.print("|   {}  |\n", .{hits[i]});
-            }
-            try stdout.print(
-                \\|-----------------|
-                \\|    Total:{:>3}    |
-                \\|=================|
-                \\
-                \\
-            , .{year_count});
+        const is_new_year: bool = date.increment();
+        if (is_new_year) {
+            // don't print years with no matches
+            if (print_flag and !(year_count == 0)) try printYear(&stdout, hits[0..year_count]);
             total_occurrences += year_count;
             year_count = 0;
             if (date.year == end_year) break;
         }
+        total_days += 1;
 
+        // check for match
         if (date.sumDigits() == target) {
             hits[year_count] = date;
             year_count += 1;
         }
     }
-
-    // an extra day will be counted for the final year; fix that here
-    total_days -= 1;
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
@@ -314,10 +269,10 @@ fn calculatePercentFromInt(part: u32, whole: u32) f32 {
 ///     mm/d/yyyy is valid
 ///     mmmmm/dddddd/yyyyyy is valid but ontologically incorrect
 ///     Any length for any part of the date is valid - it is the order that matters
-fn parseDate(allocator: std.mem.Allocator, input: []const u8) !Date {
+fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
     var date_breakdown = std.ArrayList(u32).init(allocator);
     defer date_breakdown.deinit();
-    var it = std.mem.tokenizeScalar(u8, input, '/');
+    var it = mem.tokenizeScalar(u8, input, '/');
     while (it.next()) |date_frag| {
         const parsed_date_frag: u32 = fmt.parseUnsigned(u32, date_frag, 10) catch |err| {
             dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
@@ -334,6 +289,70 @@ fn parseDate(allocator: std.mem.Allocator, input: []const u8) !Date {
         .day = date_breakdown.items[1],
         .year = date_breakdown.items[2],
     };
+}
+
+/// Validate, parse, and store commandline args for use
+/// Arg 1: target date in mm/dd/yyyy format
+/// Arg 2: year to start from, positive int < 1e6
+/// Arg 3: year to end at, positive int < 1e6
+/// Returns the target date for later use
+fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
+    var target_date: Date = undefined;
+    for (args, 1..) |arg, i| {
+        switch (i) {
+            1 => {
+                target_date = try parseDate(allocator, arg);
+                target.* = target_date.sumDigits();
+            },
+            2 => {
+                start_year.* = fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                    dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
+                    return err;
+                };
+                if (!(start_year.* < 1e6)) {
+                    dprint(error_message, .{ "start_year is too big!", usage });
+                    return ArgsError.YearTooBig;
+                }
+            },
+            3 => {
+                end_year.* = fmt.parseUnsigned(u31, arg, 10) catch |err| {
+                    dprint(error_message, .{ "Invalid arg! end_year must be a positive integer.", usage });
+                    return err;
+                };
+                if (end_year.* > 1e6) {
+                    dprint(error_message, .{ "end_year is too big!", usage });
+                    return ArgsError.YearTooBig;
+                }
+            },
+            else => unreachable,
+        }
+    }
+    if (start_year.* > end_year.*) {
+        dprint(error_message, .{ "start_year cannot be greater than end_year!", usage });
+        return ArgsError.StartYearGreaterThanEndYear;
+    }
+    return target_date;
+}
+
+/// Outputs the year and all provided dates to the provided writer, as well as total dates
+fn printYear(writer: anytype, dates: []Date) !void {
+    const year = dates[0].year;
+    try writer.print(
+        \\|=================|
+        \\|{:^17}|
+        \\|=================|
+        \\
+    , .{year});
+    for (dates) |date| {
+        try writer.print("|   {}  |\n", .{date});
+    }
+    try writer.print(
+        \\|-----------------|
+        \\|    Total:{:>3}    |
+        \\|=================|
+        \\
+        \\
+    , .{dates.len});
 }
 
 //---------------------------------------------------------------------------------------------------------------------

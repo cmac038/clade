@@ -8,16 +8,16 @@
 
 ## Calculations
 
-- [ ] Sum of digits
-- [ ] Life path
+- [x] Sum of digits
+- [x] Life path
 - [ ] Tarot
 - [ ] Astrology filter for all clade calc
 
 ## Behavior
 
 - [x] no args: print usage and exit
-- [ ] target_date, start_year, end_year: print results
-- [ ] -p: print all dates that match + results
+- [x] target_date, start_year, end_year: print results
+- [x] -p: print all dates that match + results
 
 ## Refactoring
 
