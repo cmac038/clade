@@ -7,7 +7,7 @@
 const std = @import("std");
 const testing = std.testing;
 const fmt = std.fmt;
-const Timer = std.time.Timer;
+const time = std.time;
 const stdout_file = std.io.getStdOut().writer();
 const dprint = std.debug.print;
 
@@ -41,7 +41,7 @@ const Date = struct {
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub fn format(self: Date, comptime format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Date, comptime format_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
         _ = format_string;
         _ = options;
 
@@ -92,8 +92,8 @@ const Date = struct {
     }
 
     /// Leap year rules:
-    /// divisible by 4 == true
-    /// divisible by 100 == false EXCEPT when divisible by 400
+    ///     divisible by 4 == true
+    ///     divisible by 100 == false EXCEPT when divisible by 400
     pub fn isLeapYear(self: Date) bool {
         if (self.year % 100 == 0) {
             if (self.year % 400 == 0) return true;
@@ -114,17 +114,16 @@ const Date = struct {
 //---------------------------------------------------------------------------------------------------------------------
 
 pub fn main() !void {
-    var timer = try Timer.start();
+    var timer = try time.Timer.start();
 
-    // buffered writer for better performance
     var buf = std.io.bufferedWriter(stdout_file);
     var stdout = buf.writer();
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Handle command-line args
+    // handle command-line args
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -141,37 +140,14 @@ pub fn main() !void {
 
     // single arg: calculate sumDigit for one date
     if (args.len == 2) {
-        var date_breakdown = std.ArrayList(u32).init(allocator);
-        defer date_breakdown.deinit();
-        const input: []const u8 = args[1];
-        var it = std.mem.tokenizeScalar(u8, input, '/');
-        while (it.next()) |date_frag| {
-            const parsed_date_frag: u32 = std.fmt.parseUnsigned(u32, date_frag, 10) catch |err| {
-                dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
-                return err;
-            };
-            try date_breakdown.append(parsed_date_frag);
-        }
-        if (date_breakdown.items.len != 3) {
-            dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
-            return ArgsError.InvalidDateFormat;
-        }
-        var date_to_sum: Date = undefined;
-        for (date_breakdown.items, 0..) |item, i| {
-            switch (i) {
-                0 => date_to_sum.month = item,
-                1 => date_to_sum.day = item,
-                2 => date_to_sum.year = item,
-                else => unreachable,
-            }
-        }
+        const date_to_sum: Date = try parseDate(allocator, args[1]);
         try stdout.print("Sum of digits in {s}:  {}\n", .{ date_to_sum, date_to_sum.sumDigits() });
         try buf.flush();
         return;
     }
 
     // multiple args: calculate and print number of dates that add up to target between start_year and target_year
-    // Do we have the right number of args?
+    // do we have the right number of args?
     if (args.len < 4) {
         dprint(error_message, .{ "Too few args!", usage });
         return ArgsError.TooFewArgs;
@@ -181,16 +157,16 @@ pub fn main() !void {
         return ArgsError.TooManyArgs;
     }
 
-    // Are the args valid?
+    // are the args valid?
     for (args, 1..) |arg, i| {
         switch (i) {
             1 => continue,
-            2 => target = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+            2 => target = fmt.parseUnsigned(u32, arg, 10) catch |err| {
                 dprint(error_message, .{ "Invalid arg! target must be a positive integer.", usage });
                 return err;
             },
             3 => {
-                start_year = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                start_year = fmt.parseUnsigned(u32, arg, 10) catch |err| {
                     dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
                     return err;
                 };
@@ -200,7 +176,7 @@ pub fn main() !void {
                 }
             },
             4 => {
-                end_year = std.fmt.parseUnsigned(u31, arg, 10) catch |err| {
+                end_year = fmt.parseUnsigned(u31, arg, 10) catch |err| {
                     dprint(error_message, .{ "Invalid arg! end_year must be a positive integer.", usage });
                     return err;
                 };
@@ -219,7 +195,7 @@ pub fn main() !void {
     }
 
     //
-    // If we made it here, args are valid!
+    // if we made it here, args are valid!
     //
 
     // accumulators
@@ -233,7 +209,7 @@ pub fn main() !void {
     var date = Date{
         .year = start_year,
         .month = 1,
-        .day = 1,
+        .day = 0,
     };
 
     while (date.year != end_year) {
@@ -293,7 +269,7 @@ pub fn main() !void {
         total_occurrences,
         total_days,
         calculatePercentFromInt(total_occurrences, total_days),
-        elapsed_time / std.time.ns_per_ms,
+        elapsed_time / time.ns_per_ms,
     });
     try buf.flush();
 }
@@ -302,6 +278,12 @@ pub fn main() !void {
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 
+/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
+/// The divisor is used to deconstruct number e.g.:
+///     number = 1956
+///     divisor = 1000
+///     number / divisor = 1 (int division)
+/// This implementation uses recursion to divide the divisor by 10 at each step.
 inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
     if (divisor == 1) {
         return number;
@@ -309,6 +291,12 @@ inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
     return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
 }
 
+/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
+/// The divisor is used to deconstruct number e.g.:
+///     number = 1956
+///     divisor = 1000
+///     number / divisor = 1 (int division)
+/// This implementation uses iteration to divide the divisor by 10 at each step.
 fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
     var total: u32 = 0;
     var number = input;
@@ -320,8 +308,38 @@ fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
     return total + number;
 }
 
+/// Handle float casts to properly handle percentage calc from ints
 fn calculatePercentFromInt(part: u32, whole: u32) f32 {
     return (@as(f32, @floatFromInt(part)) / @as(f32, @floatFromInt(whole))) * 100;
+}
+
+/// Takes a date input in the form "mm/dd/yyyy" and returns a Date object
+/// "mm/dd/yyyy" format is not strict i.e.
+///     mm/dd/yy is valid; yy = 96 will be treated as year 96, not 1996
+///     m/d/y is valid
+///     mm/d/yyyy is valid
+///     mmmmm/dddddd/yyyyyy is valid but ontologically incorrect
+///     Any length for any part of the date is valid - it is the order that matters
+fn parseDate(allocator: std.mem.Allocator, input: []const u8) !Date {
+    var date_breakdown = std.ArrayList(u32).init(allocator);
+    defer date_breakdown.deinit();
+    var it = std.mem.tokenizeScalar(u8, input, '/');
+    while (it.next()) |date_frag| {
+        const parsed_date_frag: u32 = fmt.parseUnsigned(u32, date_frag, 10) catch |err| {
+            dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+            return err;
+        };
+        try date_breakdown.append(parsed_date_frag);
+    }
+    if (date_breakdown.items.len != 3) {
+        dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+        return ArgsError.InvalidDateFormat;
+    }
+    return Date{
+        .month = date_breakdown.items[0],
+        .day = date_breakdown.items[1],
+        .year = date_breakdown.items[2],
+    };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
