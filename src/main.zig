@@ -19,8 +19,8 @@ const usage =
     \\          - TARGET_DATE must be in mm/dd/yyyy form
     \\          - START_YEAR & END_YEAR must be positive integers
     \\          - START_YEAR < END_YEAR
-    \\          - START_YEAR > 1e6
-    \\          - END_YEAR >= 1e6
+    \\          - START_YEAR < 1e6
+    \\          - END_YEAR <= 1e6
     \\          - Include -p to print all matching dates
     \\
     \\
@@ -309,7 +309,7 @@ fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_y
                     dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
                     return err;
                 };
-                if (start_year.* > 1e6) {
+                if (!(start_year.* < 1e6)) {
                     dprint(error_message, .{ "start_year is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
