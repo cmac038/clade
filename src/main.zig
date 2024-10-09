@@ -1,7 +1,6 @@
 //! This program outputs dates which add up to a target number.
 //! start_year and end_year delineate the date range.
 //! Totals for each year are provided as output if requested.
-// TODO: better formatting for output; horizontal output?
 
 const std = @import("std");
 const testing = std.testing;
@@ -11,8 +10,15 @@ const mem = std.mem;
 const stdout_file = std.io.getStdOut().writer();
 const dprint = std.debug.print;
 
+// ANSI escape sequences
+const ANSI_RED = "\x1b[31m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_BLINK = "\x1b[5m";
+const ANSI_BOLD = "\x1b[1m";
+const ANSI_RESET = "\x1b[0m";
+
 // string statics
-const usage =
+const usage = ANSI_YELLOW ++
     \\
     \\    Usage: 
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
@@ -24,14 +30,15 @@ const usage =
     \\          - Include -p to print all matching dates
     \\
     \\
-;
-const error_message = "\n> ERROR: {s} <---\n{s}";
+++ ANSI_RESET;
+
+const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++ "\n> ERROR: {s} <---" ++ ANSI_RESET ++ "\n{s}";
 
 const ArgsError = error{
     TooManyArgs,
     TooFewArgs,
     YearTooBig,
-    StartYearGreaterThanEndYear,
+    StartYearNotLessThanEndYear,
     InvalidDateFormat,
     InvalidFlag,
 };
@@ -43,11 +50,11 @@ const Date = struct {
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub fn format(self: Date, comptime format_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
-        _ = format_string;
+    pub fn format(self: Date, comptime fmt_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt_string;
         _ = options;
 
-        try writer.print("{:0>2}/{:0>2}/{:<6}", .{ self.month, self.day, self.year });
+        try writer.print("{[month]:0>2}/{[day]:0>2}/{[year]:<6}", self);
     }
 
     /// Increment by one day, handling month and year turnovers
@@ -176,7 +183,7 @@ pub fn main() !void {
         .day = 0,
     };
 
-    while (date.year != end_year) {
+    while (true) {
         const is_new_year: bool = date.increment();
         if (is_new_year) {
             // don't print years with no matches
@@ -284,7 +291,7 @@ fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
         dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
         return ArgsError.InvalidDateFormat;
     }
-    return Date{
+    return .{
         .month = date_breakdown.items[0],
         .day = date_breakdown.items[1],
         .year = date_breakdown.items[2],
@@ -298,38 +305,38 @@ fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
 /// Returns the target date for later use
 fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
     var target_date: Date = undefined;
-    for (args, 1..) |arg, i| {
+    for (args, 0..) |arg, i| {
         switch (i) {
-            1 => {
+            0 => {
                 target_date = try parseDate(allocator, arg);
                 target.* = target_date.sumDigits();
             },
-            2 => {
+            1 => {
                 start_year.* = fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! start_year must be a positive integer.", usage });
+                    dprint(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
                     return err;
                 };
                 if (!(start_year.* < 1e6)) {
-                    dprint(error_message, .{ "start_year is too big!", usage });
+                    dprint(error_message, .{ "START_YEAR is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
-            3 => {
+            2 => {
                 end_year.* = fmt.parseUnsigned(u31, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! end_year must be a positive integer.", usage });
+                    dprint(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
                     return err;
                 };
                 if (end_year.* > 1e6) {
-                    dprint(error_message, .{ "end_year is too big!", usage });
+                    dprint(error_message, .{ "END_YEAR is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
             else => unreachable,
         }
     }
-    if (start_year.* > end_year.*) {
-        dprint(error_message, .{ "start_year cannot be greater than end_year!", usage });
-        return ArgsError.StartYearGreaterThanEndYear;
+    if (start_year.* >= end_year.*) {
+        dprint(error_message, .{ "START_YEAR must be less than END_YEAR!", usage });
+        return ArgsError.StartYearNotLessThanEndYear;
     }
     return target_date;
 }
@@ -447,6 +454,10 @@ test "Date isLeapYear (false)" {
     const date = Date{ .year = 2022, .month = 8, .day = 5 };
     try testing.expect(!date.isLeapYear());
 }
+test "Date isLeapYear (true)" {
+    const date = Date{ .year = 1996, .month = 8, .day = 5 };
+    try testing.expect(date.isLeapYear());
+}
 
 // Date increment
 test "Date increment day" {
@@ -455,8 +466,8 @@ test "Date increment day" {
         .month = 11,
         .day = 9,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 1950 and date.month == 11 and date.day == 10);
+    const new_year: bool = date.increment();
+    try testing.expect(!new_year and date.year == 1950 and date.month == 11 and date.day == 10);
 }
 test "Date increment 30 day month" {
     var date = Date{
@@ -464,8 +475,8 @@ test "Date increment 30 day month" {
         .month = 11,
         .day = 30,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 1950 and date.month == 12 and date.day == 1);
+    const new_year: bool = date.increment();
+    try testing.expect(!new_year and date.year == 1950 and date.month == 12 and date.day == 1);
 }
 test "Date increment 31 day month" {
     var date = Date{
@@ -473,8 +484,8 @@ test "Date increment 31 day month" {
         .month = 8,
         .day = 31,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 1950 and date.month == 9 and date.day == 1);
+    const new_year: bool = date.increment();
+    try testing.expect(!new_year and date.year == 1950 and date.month == 9 and date.day == 1);
 }
 test "Date increment February (not Leap Year)" {
     var date = Date{
@@ -482,8 +493,8 @@ test "Date increment February (not Leap Year)" {
         .month = 2,
         .day = 28,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 1950 and date.month == 3 and date.day == 1);
+    const new_year: bool = date.increment();
+    try testing.expect(!new_year and date.year == 1950 and date.month == 3 and date.day == 1);
 }
 test "Date increment February (Leap Year)" {
     var date = Date{
@@ -491,8 +502,8 @@ test "Date increment February (Leap Year)" {
         .month = 2,
         .day = 28,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 2024 and date.month == 2 and date.day == 29);
+    const new_year: bool = date.increment();
+    try testing.expect(!new_year and date.year == 2024 and date.month == 2 and date.day == 29);
 }
 test "Date increment year" {
     var date = Date{
@@ -500,8 +511,8 @@ test "Date increment year" {
         .month = 12,
         .day = 31,
     };
-    _ = date.increment();
-    try testing.expect(date.year == 1951 and date.month == 1 and date.day == 1);
+    const new_year: bool = date.increment();
+    try testing.expect(new_year and date.year == 1951 and date.month == 1 and date.day == 1);
 }
 
 // Date sumDigits
