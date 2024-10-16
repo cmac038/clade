@@ -98,14 +98,14 @@ const Date = struct {
     ///     divisible by 100 == false EXCEPT when divisible by 400
     pub fn isLeapYear(self: Date) bool {
         if (self.year % 100 == 0) {
-            if (self.year % 400 == 0) return true;
-            return false;
+            return self.year % 400 == 0;
         }
         return self.year % 4 == 0;
     }
 
     /// Sum up all the digits in the date
     /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
+    /// Can sum any date up to year 1,000,000
     pub fn sumDigits(self: Date) u32 {
         return sumDigitsRecursive(self.year, 100000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
