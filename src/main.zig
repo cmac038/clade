@@ -122,118 +122,6 @@ const Date = struct {
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 
-pub fn main() !void {
-    var timer = try time.Timer.start();
-
-    var buf = std.io.bufferedWriter(stdout_file);
-    var stdout = buf.writer();
-
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    var target_date: Date = undefined;
-    var target: u32 = undefined;
-    var start_year: u32 = undefined;
-    var end_year: u32 = undefined;
-    var print_flag: bool = false;
-
-    // handle commandline args
-    switch (args.len) {
-        1 => {
-            try stdout.print("{s}", .{usage});
-            try buf.flush();
-            return;
-        },
-        2, 3 => {
-            dprint(error_message, .{ "Too few args!", usage });
-            return ArgsError.TooFewArgs;
-        },
-        4 => {
-            target_date = try parseArgs(allocator, args[1..], &target, &start_year, &end_year);
-        },
-        5 => {
-            if (!mem.eql(u8, args[1], "-p")) {
-                dprint(error_message, .{ "Invalid flag format!", usage });
-                return ArgsError.InvalidFlag;
-            }
-            target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
-            print_flag = true;
-        },
-        else => {
-            dprint(error_message, .{ "Too many args!", usage });
-            return ArgsError.TooManyArgs;
-        },
-    }
-
-    // accumulators
-    var year_count: u32 = 0;
-    var total_occurrences: u32 = 0;
-    var total_days: u32 = 0;
-
-    // array to store hits (dates that match the target sum)
-    var hits: [36]Date = undefined;
-
-    var date = Date{
-        .year = start_year,
-        .month = 1,
-        .day = 0,
-    };
-
-    while (true) {
-        const is_new_year: bool = date.increment();
-        if (is_new_year) {
-            // don't print years with no matches
-            if (print_flag and !(year_count == 0)) try printYear(&stdout, hits[0..year_count]);
-            total_occurrences += year_count;
-            year_count = 0;
-            if (date.year == end_year) break;
-        }
-        total_days += 1;
-
-        // check for match
-        if (date.sumDigits() == target) {
-            hits[year_count] = date;
-            year_count += 1;
-        }
-    }
-
-    const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
-    try stdout.print(
-        \\--------------------------------
-        \\            Results:
-        \\--------------------------------
-        \\  Target date:        {}
-        \\  Target sum:         {}
-        \\  Life path #:        {}
-        \\  Year range:         {}-{}
-        \\  Total occurrences:  {}
-        \\  Total days checked: {}
-        \\  Percentage:         {d:.4}%
-        \\  Elapsed time:       {d:.3}ms 
-        \\--------------------------------
-        \\
-    , .{
-        target_date,
-        target,
-        sumDigitsIterative(target, 10),
-        start_year,
-        end_year - 1,
-        total_occurrences,
-        total_days,
-        calculatePercentFromInt(total_occurrences, total_days),
-        elapsed_time / time.ns_per_ms,
-    });
-    try buf.flush();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
-
 /// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
 /// The divisor is used to deconstruct number e.g.:
 ///     number = 1956
@@ -360,6 +248,118 @@ fn printYear(writer: anytype, dates: []Date) !void {
         \\
         \\
     , .{dates.len});
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------
+
+pub fn main() !void {
+    var timer = try time.Timer.start();
+
+    var buf = std.io.bufferedWriter(stdout_file);
+    var stdout = buf.writer();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    var target_date: Date = undefined;
+    var target: u32 = undefined;
+    var start_year: u32 = undefined;
+    var end_year: u32 = undefined;
+    var print_flag: bool = false;
+
+    // handle commandline args
+    switch (args.len) {
+        1 => {
+            try stdout.print("{s}", .{usage});
+            try buf.flush();
+            return;
+        },
+        2, 3 => {
+            dprint(error_message, .{ "Too few args!", usage });
+            return ArgsError.TooFewArgs;
+        },
+        4 => {
+            target_date = try parseArgs(allocator, args[1..], &target, &start_year, &end_year);
+        },
+        5 => {
+            if (!mem.eql(u8, args[1], "-p")) {
+                dprint(error_message, .{ "Invalid flag format!", usage });
+                return ArgsError.InvalidFlag;
+            }
+            target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
+            print_flag = true;
+        },
+        else => {
+            dprint(error_message, .{ "Too many args!", usage });
+            return ArgsError.TooManyArgs;
+        },
+    }
+
+    // accumulators
+    var year_count: u32 = 0;
+    var total_occurrences: u32 = 0;
+    var total_days: u32 = 0;
+
+    // array to store hits (dates that match the target sum)
+    var hits: [36]Date = undefined;
+
+    var date = Date{
+        .year = start_year,
+        .month = 1,
+        .day = 0,
+    };
+
+    while (true) {
+        const is_new_year: bool = date.increment();
+        if (is_new_year) {
+            // don't print years with no matches
+            if (print_flag and !(year_count == 0)) try printYear(&stdout, hits[0..year_count]);
+            total_occurrences += year_count;
+            year_count = 0;
+            if (date.year == end_year) break;
+        }
+        total_days += 1;
+
+        // check for match
+        if (date.sumDigits() == target) {
+            hits[year_count] = date;
+            year_count += 1;
+        }
+    }
+
+    const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
+    try stdout.print(
+        \\--------------------------------
+        \\            Results:
+        \\--------------------------------
+        \\  Target date:        {}
+        \\  Target sum:         {}
+        \\  Life path #:        {}
+        \\  Year range:         {}-{}
+        \\  Total occurrences:  {}
+        \\  Total days checked: {}
+        \\  Percentage:         {d:.4}%
+        \\  Elapsed time:       {d:.3}ms 
+        \\--------------------------------
+        \\
+    , .{
+        target_date,
+        target,
+        sumDigitsIterative(target, 10),
+        start_year,
+        end_year - 1,
+        total_occurrences,
+        total_days,
+        calculatePercentFromInt(total_occurrences, total_days),
+        elapsed_time / time.ns_per_ms,
+    });
+    try buf.flush();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
