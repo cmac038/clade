@@ -3,7 +3,6 @@
 - [x] Integrate command line args
 - [ ] Implement better output formatting
 - [x] Add a build script
-- [ ] Helper module for reading commandline input
 - [x] Input a date instead of target number
 
 ## Calculations
