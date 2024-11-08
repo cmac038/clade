@@ -104,10 +104,7 @@ const Date = struct {
     ///     divisible by 4 == true
     ///     divisible by 100 == false EXCEPT when divisible by 400
     pub fn isLeapYear(self: Date) bool {
-        if (self.year % 100 == 0) {
-            return self.year % 400 == 0;
-        }
-        return self.year % 4 == 0;
+        return self.year % 4 == 0 and (self.year % 100 != 0 or self.year % 400 == 0);
     }
 
     /// Sum up all the digits in the date
