@@ -247,6 +247,24 @@ fn printYear(writer: anytype, dates: []Date) !void {
     , .{dates.len});
 }
 
+fn doStuff(date: *Date, end_year: u32, target: u32, total_occurrences: *u32, total_days: *u32) void {
+    var year_count: u32 = 0;
+    while (true) {
+        const is_new_year: bool = date.increment();
+        if (is_new_year) {
+            total_occurrences.* += year_count;
+            year_count = 0;
+            if (date.year == end_year) break;
+        }
+        total_days.* += 1;
+
+        // check for match
+        if (date.sumDigits() == target) {
+            year_count += 1;
+        }
+    }
+}
+
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
@@ -299,36 +317,74 @@ pub fn main() !void {
     }
 
     // accumulators
-    var year_count: u32 = 0;
-    var total_occurrences: u32 = 0;
-    var total_days: u32 = 0;
+    var total_occurrencesA: u32 = 0;
+    var total_daysA: u32 = 0;
+    var total_occurrencesB: u32 = 0;
+    var total_daysB: u32 = 0;
+    var total_occurrencesC: u32 = 0;
+    var total_daysC: u32 = 0;
+    var total_occurrencesD: u32 = 0;
+    var total_daysD: u32 = 0;
+    var total_occurrencesE: u32 = 0;
+    var total_daysE: u32 = 0;
+    var total_occurrencesF: u32 = 0;
+    var total_daysF: u32 = 0;
 
-    // array to store hits (dates that match the target sum)
-    var hits: [36]Date = undefined;
+    const chunk = end_year / 6;
+    const end_yearA = chunk;
+    const end_yearB = end_yearA + chunk;
+    const end_yearC = end_yearB + chunk;
+    const end_yearD = end_yearC + chunk;
+    const end_yearE = end_yearD + chunk;
 
-    var date = Date{
+    var dateA = Date{
         .year = start_year,
         .month = 1,
         .day = 0,
     };
+    var dateB = Date{
+        .year = end_yearA,
+        .month = 1,
+        .day = 0,
+    };
+    var dateC = Date{
+        .year = end_yearB,
+        .month = 1,
+        .day = 0,
+    };
+    var dateD = Date{
+        .year = end_yearC,
+        .month = 1,
+        .day = 0,
+    };
+    var dateE = Date{
+        .year = end_yearD,
+        .month = 1,
+        .day = 0,
+    };
+    var dateF = Date{
+        .year = end_yearE,
+        .month = 1,
+        .day = 0,
+    };
 
-    while (true) {
-        const is_new_year: bool = date.increment();
-        if (is_new_year) {
-            // don't print years with no matches
-            if (print_flag and !(year_count == 0)) try printYear(&stdout, hits[0..year_count]);
-            total_occurrences += year_count;
-            year_count = 0;
-            if (date.year == end_year) break;
-        }
-        total_days += 1;
-
-        // check for match
-        if (date.sumDigits() == target) {
-            hits[year_count] = date;
-            year_count += 1;
-        }
+    {
+        const handleA = try std.Thread.spawn(.{}, doStuff, .{ &dateA, end_yearA, target, &total_occurrencesA, &total_daysA });
+        defer handleA.join();
+        const handleB = try std.Thread.spawn(.{}, doStuff, .{ &dateB, end_yearB, target, &total_occurrencesB, &total_daysB });
+        defer handleB.join();
+        const handleC = try std.Thread.spawn(.{}, doStuff, .{ &dateC, end_yearC, target, &total_occurrencesC, &total_daysC });
+        defer handleC.join();
+        const handleD = try std.Thread.spawn(.{}, doStuff, .{ &dateD, end_yearD, target, &total_occurrencesD, &total_daysD });
+        defer handleD.join();
+        const handleE = try std.Thread.spawn(.{}, doStuff, .{ &dateE, end_yearE, target, &total_occurrencesE, &total_daysE });
+        defer handleE.join();
+        const handleF = try std.Thread.spawn(.{}, doStuff, .{ &dateF, end_year, target, &total_occurrencesF, &total_daysF });
+        defer handleF.join();
     }
+
+    const total_occurrences = total_occurrencesA + total_occurrencesB + total_occurrencesC + total_occurrencesD + total_occurrencesE + total_occurrencesF;
+    const total_days = total_daysA + total_daysB + total_daysC + total_daysD + total_daysE + total_daysF;
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
