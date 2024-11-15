@@ -4,6 +4,7 @@
 - [ ] Implement better output formatting
 - [x] Add a build script
 - [x] Input a date instead of target number
+- [x] Add parallelization
 
 ## Calculations
 

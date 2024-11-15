@@ -8,7 +8,7 @@ const fmt = std.fmt;
 const time = std.time;
 const mem = std.mem;
 const stdout_file = std.io.getStdOut().writer();
-const dprint = std.debug.print;
+const print = std.debug.print;
 
 // ANSI escape sequences
 const ANSI_RED = "\x1b[31m";
@@ -25,8 +25,8 @@ const usage = ANSI_YELLOW ++
     \\          - TARGET_DATE must be in mm/dd/yyyy form
     \\          - START_YEAR & END_YEAR must be positive integers
     \\          - START_YEAR < END_YEAR
-    \\          - START_YEAR < 1e6
-    \\          - END_YEAR <= 1e6
+    \\          - START_YEAR < 1e8
+    \\          - END_YEAR <= 1e8
     \\          - Include -p to print all matching dates
     \\
     \\
@@ -109,9 +109,9 @@ const Date = struct {
 
     /// Sum up all the digits in the date
     /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
-    /// Can sum any date up to year 1,000,000
+    /// Can sum any date up to year 100,000,000
     pub fn sumDigits(self: Date) u32 {
-        return sumDigitsRecursive(self.year, 100000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
+        return sumDigitsRecursive(self.year, 10000000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
 };
 
@@ -149,9 +149,9 @@ fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
     return total + number;
 }
 
-/// Handle float casts to properly handle percentage calc from ints
-fn calculatePercentFromInt(part: u32, whole: u32) f32 {
-    return (@as(f32, @floatFromInt(part)) / @as(f32, @floatFromInt(whole))) * 100;
+/// Handle float casts to properly calculate percentage from ints
+fn calculatePercentFromInt(part: u64, whole: u64) f64 {
+    return (@as(f64, @floatFromInt(part)) / @as(f64, @floatFromInt(whole))) * 100;
 }
 
 /// Takes a date input in the form "mm/dd/yyyy" and returns a Date object
@@ -167,13 +167,13 @@ fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
     var it = mem.tokenizeScalar(u8, input, '/');
     while (it.next()) |date_frag| {
         const parsed_date_frag: u32 = fmt.parseUnsigned(u32, date_frag, 10) catch |err| {
-            dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+            print(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
             return err;
         };
         try date_breakdown.append(parsed_date_frag);
     }
     if (date_breakdown.items.len != 3) {
-        dprint(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+        print(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
         return ArgsError.InvalidDateFormat;
     }
     return .{
@@ -198,21 +198,21 @@ fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_y
             },
             1 => {
                 start_year.* = fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
+                    print(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
                     return err;
                 };
-                if (!(start_year.* < 1e6)) {
-                    dprint(error_message, .{ "START_YEAR is too big!", usage });
+                if (!(start_year.* < 1e8)) {
+                    print(error_message, .{ "START_YEAR is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
             2 => {
                 end_year.* = fmt.parseUnsigned(u31, arg, 10) catch |err| {
-                    dprint(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
+                    print(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
                     return err;
                 };
-                if (end_year.* > 1e6) {
-                    dprint(error_message, .{ "END_YEAR is too big!", usage });
+                if (end_year.* > 1e8) {
+                    print(error_message, .{ "END_YEAR is too big!", usage });
                     return ArgsError.YearTooBig;
                 }
             },
@@ -220,7 +220,7 @@ fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_y
         }
     }
     if (start_year.* >= end_year.*) {
-        dprint(error_message, .{ "START_YEAR must be less than END_YEAR!", usage });
+        print(error_message, .{ "START_YEAR must be less than END_YEAR!", usage });
         return ArgsError.StartYearNotLessThanEndYear;
     }
     return target_date;
@@ -247,22 +247,31 @@ fn printYear(writer: anytype, dates: []Date) !void {
     , .{dates.len});
 }
 
-fn doStuff(date: *Date, end_year: u32, target: u32, total_occurrences: *u32, total_days: *u32) void {
+/// Holds state for threads
+const ThreadState = struct {
+    occurrences: u32,
+    days_checked: u32,
+};
+
+/// Checks if the sum of date digits for all days between start_year and end_year match the target
+/// Records the number of matches and total days checked in the ThreadState object
+fn checkDates(num: usize, start_year: u32, end_year: u32, target: u32, state: *ThreadState) void {
+    var date: Date = .{ .month = 1, .day = 0, .year = start_year };
     var year_count: u32 = 0;
-    while (true) {
+    while (true) : (state.days_checked += 1) {
         const is_new_year: bool = date.increment();
         if (is_new_year) {
-            total_occurrences.* += year_count;
+            state.occurrences += year_count;
             year_count = 0;
             if (date.year == end_year) break;
         }
-        total_days.* += 1;
 
         // check for match
         if (date.sumDigits() == target) {
             year_count += 1;
         }
     }
+    print("[INFO] Thread {:>2} done --> {:>8} days checked with {:>8} matches ({d:.4}%)\n", .{ num + 1, state.days_checked, state.occurrences, calculatePercentFromInt(state.occurrences, state.days_checked) });
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -296,7 +305,7 @@ pub fn main() !void {
             return;
         },
         2, 3 => {
-            dprint(error_message, .{ "Too few args!", usage });
+            print(error_message, .{ "Too few args!", usage });
             return ArgsError.TooFewArgs;
         },
         4 => {
@@ -304,87 +313,62 @@ pub fn main() !void {
         },
         5 => {
             if (!mem.eql(u8, args[1], "-p")) {
-                dprint(error_message, .{ "Invalid flag format!", usage });
+                print(error_message, .{ "Invalid flag format!", usage });
                 return ArgsError.InvalidFlag;
             }
             target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
             print_flag = true;
         },
         else => {
-            dprint(error_message, .{ "Too many args!", usage });
+            print(error_message, .{ "Too many args!", usage });
             return ArgsError.TooManyArgs;
         },
     }
 
-    // accumulators
-    var total_occurrencesA: u32 = 0;
-    var total_daysA: u32 = 0;
-    var total_occurrencesB: u32 = 0;
-    var total_daysB: u32 = 0;
-    var total_occurrencesC: u32 = 0;
-    var total_daysC: u32 = 0;
-    var total_occurrencesD: u32 = 0;
-    var total_daysD: u32 = 0;
-    var total_occurrencesE: u32 = 0;
-    var total_daysE: u32 = 0;
-    var total_occurrencesF: u32 = 0;
-    var total_daysF: u32 = 0;
+    const cpus = try std.Thread.getCpuCount();
 
-    const chunk = end_year / 6;
-    const end_yearA = chunk;
-    const end_yearB = end_yearA + chunk;
-    const end_yearC = end_yearB + chunk;
-    const end_yearD = end_yearC + chunk;
-    const end_yearE = end_yearD + chunk;
+    var total_occurrences: u64 = 0;
+    var total_days: u64 = 0;
 
-    var dateA = Date{
-        .year = start_year,
-        .month = 1,
-        .day = 0,
-    };
-    var dateB = Date{
-        .year = end_yearA,
-        .month = 1,
-        .day = 0,
-    };
-    var dateC = Date{
-        .year = end_yearB,
-        .month = 1,
-        .day = 0,
-    };
-    var dateD = Date{
-        .year = end_yearC,
-        .month = 1,
-        .day = 0,
-    };
-    var dateE = Date{
-        .year = end_yearD,
-        .month = 1,
-        .day = 0,
-    };
-    var dateF = Date{
-        .year = end_yearE,
-        .month = 1,
-        .day = 0,
-    };
+    // don't multithread when the date range is less than number of logical cores
+    if (end_year - start_year < cpus) {
+        var state: ThreadState = .{ .occurrences = 0, .days_checked = 0 };
+        checkDates(110, start_year, end_year, target, &state);
+        total_occurrences = state.occurrences;
+        total_days = state.days_checked;
+    } else { // MULTITHREADING TIMEEEEE
+        // storage for accumulator data structs
+        var stateList = std.ArrayList(ThreadState).init(allocator);
+        defer stateList.deinit();
+        try stateList.appendNTimes(.{ .occurrences = 0, .days_checked = 0 }, cpus);
+        // keep track of thread handles
+        var handles = std.ArrayList(std.Thread).init(allocator);
+        defer handles.deinit();
 
-    {
-        const handleA = try std.Thread.spawn(.{}, doStuff, .{ &dateA, end_yearA, target, &total_occurrencesA, &total_daysA });
-        defer handleA.join();
-        const handleB = try std.Thread.spawn(.{}, doStuff, .{ &dateB, end_yearB, target, &total_occurrencesB, &total_daysB });
-        defer handleB.join();
-        const handleC = try std.Thread.spawn(.{}, doStuff, .{ &dateC, end_yearC, target, &total_occurrencesC, &total_daysC });
-        defer handleC.join();
-        const handleD = try std.Thread.spawn(.{}, doStuff, .{ &dateD, end_yearD, target, &total_occurrencesD, &total_daysD });
-        defer handleD.join();
-        const handleE = try std.Thread.spawn(.{}, doStuff, .{ &dateE, end_yearE, target, &total_occurrencesE, &total_daysE });
-        defer handleE.join();
-        const handleF = try std.Thread.spawn(.{}, doStuff, .{ &dateF, end_year, target, &total_occurrencesF, &total_daysF });
-        defer handleF.join();
+        const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
+        print("[DEBUG] chunk size: {}\n", .{chunk});
+        var start: u32 = start_year;
+        for (0..cpus - 1) |i| {
+            const end = start + chunk;
+            print("[DEBUG] chunk {:>2} - start: {:>7} | end: {:>7} | size: {:>7}\n", .{ i + 1, start, end, end - start });
+            const handle = try std.Thread.spawn(.{}, checkDates, .{ i, start, end, target, &stateList.items[i] });
+            try handles.append(handle);
+            start += chunk;
+        }
+        const lastHandle = try std.Thread.spawn(.{}, checkDates, .{ cpus - 1, start, end_year, target, &stateList.items[cpus - 1] });
+        try handles.append(lastHandle);
+        print("[DEBUG] chunk {:>2} - start: {:>7} | end: {:>7} | size: {:>7}\n", .{ cpus, start, end_year, end_year - start });
+
+        // resolve threads before moving forward
+        for (handles.items) |handle| {
+            handle.join();
+        }
+
+        for (stateList.items) |state| {
+            total_occurrences += state.occurrences;
+            total_days += state.days_checked;
+        }
     }
-
-    const total_occurrences = total_occurrencesA + total_occurrencesB + total_occurrencesC + total_occurrencesD + total_occurrencesE + total_occurrencesF;
-    const total_days = total_daysA + total_daysB + total_daysC + total_daysD + total_daysE + total_daysF;
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(

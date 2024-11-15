@@ -1,7 +1,7 @@
 # Clade
 
 CLI program that performs various statistical and numerological calculations for a given date and range of years.  
-Written in [Zig](https://ziglang.org/)
+Written in [Zig](https://ziglang.org/).
 
 ### Usage
 
