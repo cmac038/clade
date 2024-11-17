@@ -8,10 +8,14 @@ const fmt = std.fmt;
 const time = std.time;
 const mem = std.mem;
 const print = std.debug.print;
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
+const Thread = std.Thread;
 
 // ANSI escape sequences
 const ANSI_RED = "\x1b[31m";
 const ANSI_YELLOW = "\x1b[33m";
+const ANSI_MAGENTA = "\x1b[35m";
 const ANSI_BLINK = "\x1b[5m";
 const ANSI_BOLD = "\x1b[1m";
 const ANSI_RESET = "\x1b[0m";
@@ -33,6 +37,9 @@ const usage = ANSI_YELLOW ++
 
 const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++ "\n> ERROR: {s} <---" ++ ANSI_RESET ++ "\n{s}";
 
+const info_log = ANSI_YELLOW ++ "[INFO] " ++ ANSI_RESET;
+const debug_log = ANSI_MAGENTA ++ "[DEBUG] " ++ ANSI_RESET;
+
 const ArgsError = error{
     TooManyArgs,
     TooFewArgs,
@@ -46,8 +53,8 @@ const Date = struct {
     const Self = @This();
 
     year: u32,
-    month: u32,
-    day: u32,
+    month: u8,
+    day: u8,
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
@@ -160,8 +167,8 @@ fn calculatePercentFromInt(part: u64, whole: u64) f64 {
 ///     mm/d/yyyy is valid
 ///     mmmmm/dddddd/yyyyyy is valid but ontologically incorrect
 ///     Any length for any part of the date is valid - it is the order that matters
-fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
-    var date_breakdown = try std.ArrayList(u32).initCapacity(allocator, 3);
+fn parseDate(allocator: Allocator, input: []const u8) !Date {
+    var date_breakdown = try ArrayList(u32).initCapacity(allocator, 3);
     defer date_breakdown.deinit();
     var it = mem.tokenizeScalar(u8, input, '/');
     while (it.next()) |date_frag| {
@@ -176,8 +183,8 @@ fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
         return ArgsError.InvalidDateFormat;
     }
     return .{
-        .month = date_breakdown.items[0],
-        .day = date_breakdown.items[1],
+        .month = @as(u8, @intCast(date_breakdown.items[0])),
+        .day = @as(u8, @intCast(date_breakdown.items[1])),
         .year = date_breakdown.items[2],
     };
 }
@@ -187,7 +194,7 @@ fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
 /// Arg 2: year to start from, positive int < 1e6
 /// Arg 3: year to end at, positive int < 1e6
 /// Returns the target date for later use
-fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
+fn parseArgs(allocator: Allocator, args: [][]const u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
     var target_date: Date = undefined;
     for (args, 0..) |arg, i| {
         switch (i) {
@@ -227,9 +234,9 @@ fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_y
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked (days_checked) and records matching dates (matches)
-fn checkDates(allocator: mem.Allocator, index: usize, start_year: u32, end_year: u32, target: u32, days_checked: *u32, matches: *std.ArrayList(?[]Date)) !void {
+fn checkDates(allocator: Allocator, index: usize, start_year: u32, end_year: u32, target: u32, days_checked: *u32, matches: *ArrayList(?[]Date)) !void {
     var date: Date = .{ .month = 1, .day = 0, .year = start_year };
-    var matchList = std.ArrayList(Date).init(allocator);
+    var matchList = ArrayList(Date).init(allocator);
     while (true) : (days_checked.* += 1) {
         date.increment();
         if (date.year == end_year) break;
@@ -239,7 +246,7 @@ fn checkDates(allocator: mem.Allocator, index: usize, start_year: u32, end_year:
             try matchList.append(date);
         }
     }
-    print("[INFO] Thread {:>2} finished -> {} days checked with {:>8} matches ({d:.4}%)\n", .{ index + 1, days_checked.*, matchList.items.len, calculatePercentFromInt(matchList.items.len, days_checked.*) });
+    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, days_checked.*, matchList.items.len, calculatePercentFromInt(matchList.items.len, days_checked.*) });
     matches.items[index] = try matchList.toOwnedSlice();
 }
 
@@ -295,11 +302,11 @@ pub fn main() !void {
         },
     }
 
-    const cpus = try std.Thread.getCpuCount();
+    const cpus = try Thread.getCpuCount();
 
     var total_occurrences: u64 = 0;
     var total_days: u64 = 0;
-    var matches = std.ArrayList(?[]Date).init(allocator);
+    var matches = ArrayList(?[]Date).init(allocator);
     for (0..cpus) |_| {
         try matches.append(null);
     }
@@ -312,24 +319,24 @@ pub fn main() !void {
         total_occurrences = matches.items[0].?.len;
         total_days = days_checked;
     } else { // MULTITHREADING TIMEEEEE
-        print("[INFO] Starting {} threads...\n", .{cpus});
+        print(info_log ++ "Starting {} threads...\n", .{cpus});
         // storage total checked days
-        var days_checked_list = try std.ArrayList(u32).initCapacity(allocator, cpus);
+        var days_checked_list = try ArrayList(u32).initCapacity(allocator, cpus);
         defer days_checked_list.deinit();
         try days_checked_list.appendNTimes(0, cpus);
         // keep track of thread handles
-        var handles = try std.ArrayList(std.Thread).initCapacity(allocator, cpus);
+        var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
 
         const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
         var start: u32 = start_year;
         for (0..cpus - 1) |i| {
             const end = start + chunk;
-            const handle = try std.Thread.spawn(.{}, checkDates, .{ allocator, i, start, end, target, &days_checked_list.items[i], &matches });
+            const handle = try Thread.spawn(.{}, checkDates, .{ allocator, i, start, end, target, &days_checked_list.items[i], &matches });
             try handles.append(handle);
             start += chunk;
         }
-        const lastHandle = try std.Thread.spawn(.{}, checkDates, .{ allocator, cpus - 1, start, end_year, target, &days_checked_list.items[cpus - 1], &matches });
+        const lastHandle = try Thread.spawn(.{}, checkDates, .{ allocator, cpus - 1, start, end_year, target, &days_checked_list.items[cpus - 1], &matches });
         try handles.append(lastHandle);
 
         // resolve threads before moving forward
@@ -350,8 +357,13 @@ pub fn main() !void {
             \\
         , .{});
     }
+    const date_struct_size = @sizeOf(Date);
+    print(debug_log ++ "Date struct size: {}\n", .{date_struct_size});
+    var total_size: u64 = 0;
     for (matches.items) |match_slice| {
         if (match_slice) |match| {
+            print(debug_log ++ "slice length: {:>9} | size: {d:.4} MB\n", .{ match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
+            total_size += match.len * date_struct_size;
             total_occurrences += match.len;
             if (print_flag and match.len > 0) {
                 for (match) |date| try stdout.print(">  {}\n", .{date});
@@ -359,6 +371,7 @@ pub fn main() !void {
             allocator.free(match);
         }
     }
+    print(debug_log ++ "total heap usage: {d:.4} GB\n", .{@as(f32, @floatFromInt(total_size)) / 1e9});
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
