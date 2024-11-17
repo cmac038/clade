@@ -44,13 +44,15 @@ const ArgsError = error{
 };
 
 const Date = struct {
+    const Self = @This();
+
     year: u32,
     month: u32,
     day: u32,
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub fn format(self: Date, comptime fmt_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Self, comptime fmt_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
         _ = fmt_string;
         _ = options;
 
@@ -60,7 +62,7 @@ const Date = struct {
     /// Increment by one day, handling month and year turnovers
     /// Also handles leap years
     /// Return true if incrementing results in a year turnover
-    pub fn increment(this: *Date) bool {
+    pub fn increment(this: *Self) void {
         this.day += 1;
         // check for turnover
         switch (this.month) {
@@ -80,7 +82,7 @@ const Date = struct {
             },
             // February
             2 => {
-                if (this.day == 29 and this.isLeapYear()) return false;
+                if (this.day == 29 and this.isLeapYear()) return;
                 if (this.day > 28) {
                     this.month += 1;
                     this.day = 1;
@@ -92,25 +94,23 @@ const Date = struct {
                     this.year += 1;
                     this.month = 1;
                     this.day = 1;
-                    return true;
                 }
             },
             else => unreachable,
         }
-        return false;
     }
 
     /// Leap year rules:
     ///     divisible by 4 == true
     ///     divisible by 100 == false EXCEPT when divisible by 400
-    pub fn isLeapYear(self: Date) bool {
+    pub fn isLeapYear(self: Self) bool {
         return self.year % 4 == 0 and (self.year % 100 != 0 or self.year % 400 == 0);
     }
 
     /// Sum up all the digits in the date
     /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
     /// Can sum any date up to year 100,000,000
-    pub fn sumDigits(self: Date) u32 {
+    pub fn sumDigits(self: Self) u32 {
         return sumDigitsRecursive(self.year, 10000000) + sumDigitsRecursive(self.month, 10) + sumDigitsRecursive(self.day, 10);
     }
 };
@@ -162,7 +162,7 @@ fn calculatePercentFromInt(part: u64, whole: u64) f64 {
 ///     mmmmm/dddddd/yyyyyy is valid but ontologically incorrect
 ///     Any length for any part of the date is valid - it is the order that matters
 fn parseDate(allocator: mem.Allocator, input: []const u8) !Date {
-    var date_breakdown = std.ArrayList(u32).init(allocator);
+    var date_breakdown = try std.ArrayList(u32).initCapacity(allocator, 3);
     defer date_breakdown.deinit();
     var it = mem.tokenizeScalar(u8, input, '/');
     while (it.next()) |date_frag| {
@@ -226,52 +226,22 @@ fn parseArgs(allocator: mem.Allocator, args: [][]const u8, target: *u32, start_y
     return target_date;
 }
 
-/// Outputs the year and all provided dates to the provided writer, as well as total dates
-fn printYear(writer: anytype, dates: []Date) !void {
-    const year = dates[0].year;
-    try writer.print(
-        \\|=================|
-        \\|{:^17}|
-        \\|=================|
-        \\
-    , .{year});
-    for (dates) |date| {
-        try writer.print("|   {}  |\n", .{date});
-    }
-    try writer.print(
-        \\|-----------------|
-        \\|    Total:{:>3}    |
-        \\|=================|
-        \\
-        \\
-    , .{dates.len});
-}
-
-/// Holds state for threads
-const ThreadState = struct {
-    occurrences: u32,
-    days_checked: u32,
-};
-
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
-/// Records the number of matches and total days checked in the ThreadState object
-fn checkDates(num: usize, start_year: u32, end_year: u32, target: u32, state: *ThreadState) void {
+/// Counts total days checked (days_checked) and records matching dates (matches)
+fn checkDates(allocator: mem.Allocator, index: usize, start_year: u32, end_year: u32, target: u32, days_checked: *u32, matches: *std.ArrayList(?[]Date)) !void {
     var date: Date = .{ .month = 1, .day = 0, .year = start_year };
-    var year_count: u32 = 0;
-    while (true) : (state.days_checked += 1) {
-        const is_new_year: bool = date.increment();
-        if (is_new_year) {
-            state.occurrences += year_count;
-            year_count = 0;
-            if (date.year == end_year) break;
-        }
+    var matchList = std.ArrayList(Date).init(allocator);
+    while (true) : (days_checked.* += 1) {
+        date.increment();
+        if (date.year == end_year) break;
 
         // check for match
         if (date.sumDigits() == target) {
-            year_count += 1;
+            try matchList.append(date);
         }
     }
-    print("[INFO] Thread {:>2} done --> {:>8} days checked with {:>8} matches ({d:.4}%)\n", .{ num + 1, state.days_checked, state.occurrences, calculatePercentFromInt(state.occurrences, state.days_checked) });
+    print("[INFO] Thread {:>2} finished -> {} days checked with {:>8} matches ({d:.4}%)\n", .{ index + 1, days_checked.*, matchList.items.len, calculatePercentFromInt(matchList.items.len, days_checked.*) });
+    matches.items[index] = try matchList.toOwnedSlice();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -329,44 +299,64 @@ pub fn main() !void {
 
     var total_occurrences: u64 = 0;
     var total_days: u64 = 0;
+    var matches = std.ArrayList(?[]Date).init(allocator);
+    for (0..cpus) |_| {
+        try matches.append(null);
+    }
+    defer matches.deinit();
 
     // don't multithread when the date range is less than number of logical cores
     if (end_year - start_year < cpus) {
-        var state: ThreadState = .{ .occurrences = 0, .days_checked = 0 };
-        checkDates(110, start_year, end_year, target, &state);
-        total_occurrences = state.occurrences;
-        total_days = state.days_checked;
+        var days_checked: u32 = 0;
+        try checkDates(allocator, 0, start_year, end_year, target, &days_checked, &matches);
+        total_occurrences = matches.items[0].?.len;
+        total_days = days_checked;
     } else { // MULTITHREADING TIMEEEEE
-        // storage for accumulator data structs
-        var stateList = std.ArrayList(ThreadState).init(allocator);
-        defer stateList.deinit();
-        try stateList.appendNTimes(.{ .occurrences = 0, .days_checked = 0 }, cpus);
+        print("[INFO] Starting {} threads...\n", .{cpus});
+        // storage total checked days
+        var days_checked_list = try std.ArrayList(u32).initCapacity(allocator, cpus);
+        defer days_checked_list.deinit();
+        try days_checked_list.appendNTimes(0, cpus);
         // keep track of thread handles
-        var handles = std.ArrayList(std.Thread).init(allocator);
+        var handles = try std.ArrayList(std.Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
 
         const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
-        print("[DEBUG] chunk size: {}\n", .{chunk});
         var start: u32 = start_year;
         for (0..cpus - 1) |i| {
             const end = start + chunk;
-            print("[DEBUG] chunk {:>2} - start: {:>7} | end: {:>7} | size: {:>7}\n", .{ i + 1, start, end, end - start });
-            const handle = try std.Thread.spawn(.{}, checkDates, .{ i, start, end, target, &stateList.items[i] });
+            const handle = try std.Thread.spawn(.{}, checkDates, .{ allocator, i, start, end, target, &days_checked_list.items[i], &matches });
             try handles.append(handle);
             start += chunk;
         }
-        const lastHandle = try std.Thread.spawn(.{}, checkDates, .{ cpus - 1, start, end_year, target, &stateList.items[cpus - 1] });
+        const lastHandle = try std.Thread.spawn(.{}, checkDates, .{ allocator, cpus - 1, start, end_year, target, &days_checked_list.items[cpus - 1], &matches });
         try handles.append(lastHandle);
-        print("[DEBUG] chunk {:>2} - start: {:>7} | end: {:>7} | size: {:>7}\n", .{ cpus, start, end_year, end_year - start });
 
         // resolve threads before moving forward
         for (handles.items) |handle| {
             handle.join();
         }
 
-        for (stateList.items) |state| {
-            total_occurrences += state.occurrences;
-            total_days += state.days_checked;
+        for (days_checked_list.items) |days_checked| {
+            total_days += days_checked;
+        }
+    }
+
+    if (print_flag) {
+        try stdout.print(
+            \\
+            \\    Matches:
+            \\----------------
+            \\
+        , .{});
+    }
+    for (matches.items) |match_slice| {
+        if (match_slice) |match| {
+            total_occurrences += match.len;
+            if (print_flag and match.len > 0) {
+                for (match) |date| try stdout.print(">  {}\n", .{date});
+            }
+            allocator.free(match);
         }
     }
 
@@ -503,8 +493,8 @@ test "Date increment day" {
         .month = 11,
         .day = 9,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(!new_year and date.year == 1950 and date.month == 11 and date.day == 10);
+    date.increment();
+    try testing.expect(date.year == 1950 and date.month == 11 and date.day == 10);
 }
 test "Date increment 30 day month" {
     var date = Date{
@@ -512,8 +502,8 @@ test "Date increment 30 day month" {
         .month = 11,
         .day = 30,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(!new_year and date.year == 1950 and date.month == 12 and date.day == 1);
+    date.increment();
+    try testing.expect(date.year == 1950 and date.month == 12 and date.day == 1);
 }
 test "Date increment 31 day month" {
     var date = Date{
@@ -521,8 +511,8 @@ test "Date increment 31 day month" {
         .month = 8,
         .day = 31,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(!new_year and date.year == 1950 and date.month == 9 and date.day == 1);
+    date.increment();
+    try testing.expect(date.year == 1950 and date.month == 9 and date.day == 1);
 }
 test "Date increment February (not Leap Year)" {
     var date = Date{
@@ -530,8 +520,8 @@ test "Date increment February (not Leap Year)" {
         .month = 2,
         .day = 28,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(!new_year and date.year == 1950 and date.month == 3 and date.day == 1);
+    date.increment();
+    try testing.expect(date.year == 1950 and date.month == 3 and date.day == 1);
 }
 test "Date increment February (Leap Year)" {
     var date = Date{
@@ -539,8 +529,8 @@ test "Date increment February (Leap Year)" {
         .month = 2,
         .day = 28,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(!new_year and date.year == 2024 and date.month == 2 and date.day == 29);
+    date.increment();
+    try testing.expect(date.year == 2024 and date.month == 2 and date.day == 29);
 }
 test "Date increment year" {
     var date = Date{
@@ -548,8 +538,8 @@ test "Date increment year" {
         .month = 12,
         .day = 31,
     };
-    const new_year: bool = date.increment();
-    try testing.expect(new_year and date.year == 1951 and date.month == 1 and date.day == 1);
+    date.increment();
+    try testing.expect(date.year == 1951 and date.month == 1 and date.day == 1);
 }
 
 // Date sumDigits
