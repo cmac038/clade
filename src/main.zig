@@ -7,7 +7,6 @@ const testing = std.testing;
 const fmt = std.fmt;
 const time = std.time;
 const mem = std.mem;
-const stdout_file = std.io.getStdOut().writer();
 const print = std.debug.print;
 
 // ANSI escape sequences
@@ -251,6 +250,7 @@ fn checkDates(allocator: mem.Allocator, index: usize, start_year: u32, end_year:
 pub fn main() !void {
     var timer = try time.Timer.start();
 
+    const stdout_file = std.io.getStdOut().writer();
     var buf = std.io.bufferedWriter(stdout_file);
     var stdout = buf.writer();
 
