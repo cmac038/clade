@@ -15,6 +15,7 @@ const Thread = std.Thread;
 // ANSI escape sequences
 const ANSI_RED = "\x1b[31m";
 const ANSI_YELLOW = "\x1b[33m";
+const ANSI_CYAN = "\x1b[36m";
 const ANSI_MAGENTA = "\x1b[35m";
 const ANSI_BLINK = "\x1b[5m";
 const ANSI_BOLD = "\x1b[1m";
@@ -37,7 +38,7 @@ const usage = ANSI_YELLOW ++
 
 const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++ "\n> ERROR: {s} <---" ++ ANSI_RESET ++ "\n{s}";
 
-const info_log = ANSI_YELLOW ++ "[INFO] " ++ ANSI_RESET;
+const info_log = ANSI_CYAN ++ "[INFO] " ++ ANSI_RESET;
 const debug_log = ANSI_MAGENTA ++ "[DEBUG] " ++ ANSI_RESET;
 
 const ArgsError = error{
@@ -62,7 +63,7 @@ const Date = struct {
         _ = fmt_string;
         _ = options;
 
-        try writer.print("{[month]:0>2}/{[day]:0>2}/{[year]:<6}", self);
+        try writer.print("{[month]:0>2}/{[day]:0>2}/{[year]}", self);
     }
 
     /// Increment by one day, handling month and year turnovers
@@ -232,21 +233,43 @@ fn parseArgs(allocator: Allocator, args: [][]const u8, target: *u32, start_year:
     return target_date;
 }
 
+const ThreadState = struct {
+    occurrences: u32,
+    days_checked: u32,
+};
+
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked (days_checked) and records matching dates (matches)
-fn checkDates(allocator: Allocator, index: usize, start_year: u32, end_year: u32, target: u32, days_checked: *u32, matches: *ArrayList(?[]Date)) !void {
+fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState) !void {
     var date: Date = .{ .month = 1, .day = 0, .year = start_year };
-    var matchList = ArrayList(Date).init(allocator);
-    while (true) : (days_checked.* += 1) {
+    while (true) : (thread_state.days_checked += 1) {
         date.increment();
         if (date.year == end_year) break;
 
         // check for match
         if (date.sumDigits() == target) {
+            thread_state.occurrences += 1;
+        }
+    }
+    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
+}
+
+/// Checks if the sum of date digits for all days between start_year and end_year match the target
+/// Counts total days checked (days_checked) and records matching dates (matches)
+fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
+    var date: Date = .{ .month = 1, .day = 0, .year = start_year };
+    var matchList = ArrayList(Date).init(allocator);
+    while (true) : (thread_state.*.days_checked += 1) {
+        date.increment();
+        if (date.year == end_year) break;
+
+        // check for match
+        if (date.sumDigits() == target) {
+            thread_state.*.occurrences += 1;
             try matchList.append(date);
         }
     }
-    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, days_checked.*, matchList.items.len, calculatePercentFromInt(matchList.items.len, days_checked.*) });
+    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
     matches.items[index] = try matchList.toOwnedSlice();
 }
 
@@ -314,16 +337,20 @@ pub fn main() !void {
 
     // don't multithread when the date range is less than number of logical cores
     if (end_year - start_year < cpus) {
-        var days_checked: u32 = 0;
-        try checkDates(allocator, 0, start_year, end_year, target, &days_checked, &matches);
-        total_occurrences = matches.items[0].?.len;
-        total_days = days_checked;
+        var thread_state: ThreadState = .{ .occurrences = 0, .days_checked = 0 };
+        if (print_flag) {
+            try checkDatesForPrint(allocator, 0, start_year, end_year, target, &thread_state, &matches);
+        } else {
+            try checkDates(0, start_year, end_year, target, &thread_state);
+        }
+        total_occurrences = thread_state.occurrences;
+        total_days = thread_state.days_checked;
     } else { // MULTITHREADING TIMEEEEE
         print(info_log ++ "Starting {} threads...\n", .{cpus});
-        // storage total checked days
-        var days_checked_list = try ArrayList(u32).initCapacity(allocator, cpus);
-        defer days_checked_list.deinit();
-        try days_checked_list.appendNTimes(0, cpus);
+        // storage for Thread accumulators
+        var thread_accumulators = try ArrayList(ThreadState).initCapacity(allocator, cpus);
+        defer thread_accumulators.deinit();
+        try thread_accumulators.appendNTimes(.{ .occurrences = 0, .days_checked = 0 }, cpus);
         // keep track of thread handles
         var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
@@ -332,11 +359,21 @@ pub fn main() !void {
         var start: u32 = start_year;
         for (0..cpus - 1) |i| {
             const end = start + chunk;
-            const handle = try Thread.spawn(.{}, checkDates, .{ allocator, i, start, end, target, &days_checked_list.items[i], &matches });
+            var handle: Thread = undefined;
+            if (print_flag) {
+                handle = try Thread.spawn(.{}, checkDatesForPrint, .{ allocator, i, start, end, target, &thread_accumulators.items[i], &matches });
+            } else {
+                handle = try Thread.spawn(.{}, checkDates, .{ i, start, end, target, &thread_accumulators.items[i] });
+            }
             try handles.append(handle);
             start += chunk;
         }
-        const lastHandle = try Thread.spawn(.{}, checkDates, .{ allocator, cpus - 1, start, end_year, target, &days_checked_list.items[cpus - 1], &matches });
+        var lastHandle: Thread = undefined;
+        if (print_flag) {
+            lastHandle = try Thread.spawn(.{}, checkDatesForPrint, .{ allocator, cpus - 1, start, end_year, target, &thread_accumulators.items[cpus - 1], &matches });
+        } else {
+            lastHandle = try Thread.spawn(.{}, checkDates, .{ cpus - 1, start, end_year, target, &thread_accumulators.items[cpus - 1] });
+        }
         try handles.append(lastHandle);
 
         // resolve threads before moving forward
@@ -344,8 +381,9 @@ pub fn main() !void {
             handle.join();
         }
 
-        for (days_checked_list.items) |days_checked| {
-            total_days += days_checked;
+        for (thread_accumulators.items) |thread_state| {
+            total_days += thread_state.days_checked;
+            total_occurrences += thread_state.occurrences;
         }
     }
 
@@ -358,23 +396,21 @@ pub fn main() !void {
         , .{});
     }
     const date_struct_size = @sizeOf(Date);
-    print(debug_log ++ "Date struct size: {}\n", .{date_struct_size});
     var total_size: u64 = 0;
-    for (matches.items) |match_slice| {
+    for (matches.items, 1..) |match_slice, i| {
         if (match_slice) |match| {
-            print(debug_log ++ "slice length: {:>9} | size: {d:.4} MB\n", .{ match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
+            print(debug_log ++ "slice {:>2}: {:>9} | size: {d:.4} MB\n", .{ i, match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
             total_size += match.len * date_struct_size;
-            total_occurrences += match.len;
             if (print_flag and match.len > 0) {
                 for (match) |date| try stdout.print(">  {}\n", .{date});
             }
             allocator.free(match);
         }
     }
-    print(debug_log ++ "total heap usage: {d:.4} GB\n", .{@as(f32, @floatFromInt(total_size)) / 1e9});
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
+        \\
         \\--------------------------------
         \\            Results:
         \\--------------------------------
@@ -400,6 +436,7 @@ pub fn main() !void {
         elapsed_time / time.ns_per_ms,
     });
     try buf.flush();
+    print(debug_log ++ "total heap usage: {d:.4} GB\n", .{@as(f32, @floatFromInt(total_size)) / 1e9});
 }
 
 //---------------------------------------------------------------------------------------------------------------------
