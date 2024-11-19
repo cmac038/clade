@@ -2,12 +2,49 @@
 //! start_year and end_year delineate the date range.
 //! Totals for each year are provided as output if requested.
 
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const fmt = std.fmt;
 const time = std.time;
 const mem = std.mem;
 const print = std.debug.print;
+
+const log = std.log;
+const stderr_file = std.io.getStdErr().writer();
+var err_buf = std.io.bufferedWriter(stderr_file);
+
+pub const std_options = .{
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        else => .info,
+    },
+    .logFn = myLogFn,
+};
+
+fn myLogFn(
+    comptime message_level: log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const level_txt = switch (message_level) {
+        log.Level.err => ANSI_RED,
+        log.Level.warn => ANSI_YELLOW,
+        log.Level.debug => ANSI_MAGENTA,
+        log.Level.info => ANSI_CYAN,
+    } ++ "[" ++ comptime message_level.asText() ++ "]" ++ ANSI_RESET;
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    const stderr = err_buf.writer();
+
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+    nosuspend {
+        stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        if (message_level == log.Level.info) err_buf.flush() catch return;
+    }
+}
+
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Thread = std.Thread;
@@ -37,9 +74,6 @@ const usage = ANSI_YELLOW ++
 ++ ANSI_RESET;
 
 const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++ "\n> ERROR: {s} <---" ++ ANSI_RESET ++ "\n{s}";
-
-const info_log = ANSI_CYAN ++ "[INFO] " ++ ANSI_RESET;
-const debug_log = ANSI_MAGENTA ++ "[DEBUG] " ++ ANSI_RESET;
 
 const ArgsError = error{
     TooManyArgs,
@@ -251,7 +285,7 @@ fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_
             thread_state.occurrences += 1;
         }
     }
-    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
+    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
 }
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
@@ -269,7 +303,7 @@ fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_y
             try matchList.append(date);
         }
     }
-    print(info_log ++ "Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)\n", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
+    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
     matches.items[index] = try matchList.toOwnedSlice();
 }
 
@@ -346,7 +380,7 @@ pub fn main() !void {
         total_occurrences = thread_state.occurrences;
         total_days = thread_state.days_checked;
     } else { // MULTITHREADING TIMEEEEE
-        print(info_log ++ "Starting {} threads...\n", .{cpus});
+        log.info("Starting {} threads...", .{cpus});
         // storage for Thread accumulators
         var thread_accumulators = try ArrayList(ThreadState).initCapacity(allocator, cpus);
         defer thread_accumulators.deinit();
@@ -399,7 +433,7 @@ pub fn main() !void {
     var total_size: u64 = 0;
     for (matches.items, 1..) |match_slice, i| {
         if (match_slice) |match| {
-            print(debug_log ++ "slice {:>2}: {:>9} | size: {d:.4} MB\n", .{ i, match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
+            log.debug("slice {:>2}: {:>9} | size: {d:.4} MB", .{ i, match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
             total_size += match.len * date_struct_size;
             if (print_flag and match.len > 0) {
                 for (match) |date| try stdout.print(">  {}\n", .{date});
@@ -407,6 +441,8 @@ pub fn main() !void {
             allocator.free(match);
         }
     }
+    log.debug("total heap usage: {d:.5} GB", .{@as(f32, @floatFromInt(total_size)) / 1e9});
+    if (total_size > 4e9) log.warn("heap size over 5 GB!!!", .{});
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
     try stdout.print(
@@ -436,7 +472,7 @@ pub fn main() !void {
         elapsed_time / time.ns_per_ms,
     });
     try buf.flush();
-    print(debug_log ++ "total heap usage: {d:.4} GB\n", .{@as(f32, @floatFromInt(total_size)) / 1e9});
+    err_buf.flush() catch return;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
