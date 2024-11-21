@@ -1,6 +1,6 @@
 //! This program outputs dates which add up to a target number.
-//! start_year and end_year delineate the date range.
-//! Totals for each year are provided as output if requested.
+//! START_YEAR and END_YEAR delineate the date range.
+//! Matching dates can optionally be printed.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -267,13 +267,14 @@ fn parseArgs(allocator: Allocator, args: [][]const u8, target: *u32, start_year:
     return target_date;
 }
 
+/// Holds state for multithreading
 const ThreadState = struct {
     occurrences: u32,
     days_checked: u32,
 };
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
-/// Counts total days checked (days_checked) and records matching dates (matches)
+/// Counts total days checked and number of matches
 fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState) !void {
     var date: Date = .{ .month = 1, .day = 0, .year = start_year };
     while (true) : (thread_state.days_checked += 1) {
@@ -289,17 +290,17 @@ fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_
 }
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
-/// Counts total days checked (days_checked) and records matching dates (matches)
+/// Counts total days checked and number of matches and stores matches for output (matches param)
 fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
     var date: Date = .{ .month = 1, .day = 0, .year = start_year };
     var matchList = ArrayList(Date).init(allocator);
-    while (true) : (thread_state.*.days_checked += 1) {
+    while (true) : (thread_state.days_checked += 1) {
         date.increment();
         if (date.year == end_year) break;
 
         // check for match
         if (date.sumDigits() == target) {
-            thread_state.*.occurrences += 1;
+            thread_state.occurrences += 1;
             try matchList.append(date);
         }
     }
