@@ -52,6 +52,7 @@ const Thread = std.Thread;
 // ANSI escape sequences
 const ANSI_RED = "\x1b[31m";
 const ANSI_YELLOW = "\x1b[33m";
+const ANSI_BLUE = "\x1b[34m";
 const ANSI_CYAN = "\x1b[36m";
 const ANSI_MAGENTA = "\x1b[35m";
 const ANSI_BLINK = "\x1b[5m";
@@ -59,7 +60,7 @@ const ANSI_BOLD = "\x1b[1m";
 const ANSI_RESET = "\x1b[0m";
 
 // string statics
-const usage = ANSI_YELLOW ++
+const usage = ANSI_BLUE ++
     \\
     \\    Usage: 
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
@@ -286,7 +287,12 @@ fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_
             thread_state.occurrences += 1;
         }
     }
-    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
+    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
+        index + 1,
+        thread_state.days_checked,
+        thread_state.occurrences,
+        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
+    });
 }
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
@@ -304,7 +310,12 @@ fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_y
             try matchList.append(date);
         }
     }
-    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{ index + 1, thread_state.days_checked, thread_state.occurrences, calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked) });
+    log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
+        index + 1,
+        thread_state.days_checked,
+        thread_state.occurrences,
+        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
+    });
     matches.items[index] = try matchList.toOwnedSlice();
 }
 
@@ -389,9 +400,10 @@ pub fn main() !void {
         // keep track of thread handles
         var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
-
+        // calculate chunk size (number of years each thread will check)
         const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
         var start: u32 = start_year;
+        // start threads with different fn depending on if output will be printed
         for (0..cpus - 1) |i| {
             const end = start + chunk;
             var handle: Thread = undefined;
@@ -403,6 +415,7 @@ pub fn main() !void {
             try handles.append(handle);
             start += chunk;
         }
+        // last thread handles remaining years (sometimes bigger than chunk)
         var lastHandle: Thread = undefined;
         if (print_flag) {
             lastHandle = try Thread.spawn(.{}, checkDatesForPrint, .{ allocator, cpus - 1, start, end_year, target, &thread_accumulators.items[cpus - 1], &matches });
