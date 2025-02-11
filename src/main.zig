@@ -14,7 +14,7 @@ const log = std.log;
 const stderr_file = std.io.getStdErr().writer();
 var err_buf = std.io.bufferedWriter(stderr_file);
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = switch (builtin.mode) {
         .Debug => .debug,
         else => .info,
@@ -230,7 +230,7 @@ fn parseDate(allocator: Allocator, input: []const u8) !Date {
 /// Arg 2: year to start from, positive int < 1e6
 /// Arg 3: year to end at, positive int < 1e6
 /// Returns the target date for later use
-fn parseArgs(allocator: Allocator, args: [][]const u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
+fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
     var target_date: Date = undefined;
     for (args, 0..) |arg, i| {
         switch (i) {
