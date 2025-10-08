@@ -8,11 +8,17 @@ const testing = std.testing;
 const fmt = std.fmt;
 const time = std.time;
 const mem = std.mem;
+const log = std.log;
 const print = std.debug.print;
 
-const log = std.log;
-const stderr_file = std.io.getStdErr().writer();
-var err_buf = std.io.bufferedWriter(stderr_file);
+// Writers
+var stdout_buffer: [1024]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
+
+var stderr_buffer: [1024]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const stderr = &stderr_writer.interface;
 
 pub const std_options: std.Options = .{
     .log_level = switch (builtin.mode) {
@@ -35,19 +41,19 @@ fn myLogFn(
         log.Level.info => ANSI_CYAN,
     } ++ "[" ++ comptime message_level.asText() ++ "]" ++ ANSI_RESET;
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    const stderr = err_buf.writer();
 
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     nosuspend {
         stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        if (message_level == log.Level.info) err_buf.flush() catch return;
+        if (message_level == log.Level.info) stderr.flush() catch return;
     }
 }
 
 const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.array_list.Managed;
 const Thread = std.Thread;
+const Writer = std.Io.Writer;
 
 // ANSI escape sequences
 const ANSI_RED = "\x1b[31m";
@@ -94,11 +100,8 @@ const Date = struct {
 
     /// Output takes the format mm/dd/yyyy
     /// Custom format is used for print formatting
-    pub fn format(self: Self, comptime fmt_string: []const u8, options: fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt_string;
-        _ = options;
-
-        try writer.print("{[month]:0>2}/{[day]:0>2}/{[year]}", self);
+    pub fn format(this: @This(), writer: *Writer) Writer.Error!void {
+        try writer.print("{[month]:0>2}/{[day]:0>2}/{[year]}", this);
     }
 
     /// Increment by one day, handling month and year turnovers
@@ -326,10 +329,6 @@ fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_y
 pub fn main() !void {
     var timer = try time.Timer.start();
 
-    const stdout_file = std.io.getStdOut().writer();
-    var buf = std.io.bufferedWriter(stdout_file);
-    var stdout = buf.writer();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -347,7 +346,7 @@ pub fn main() !void {
     switch (args.len) {
         1 => {
             try stdout.print("{s}", .{usage});
-            try buf.flush();
+            try stdout.flush();
             return;
         },
         2, 3 => {
@@ -450,7 +449,7 @@ pub fn main() !void {
             log.debug("slice {:>2}: {:>9} | size: {d:.4} MB", .{ i, match.len, @as(f32, @floatFromInt(match.len * date_struct_size)) / 1e6 });
             total_size += match.len * date_struct_size;
             if (print_flag and match.len > 0) {
-                for (match) |date| try stdout.print(">  {}\n", .{date});
+                for (match) |date| try stdout.print(">  {f}\n", .{date});
             }
             allocator.free(match);
         }
@@ -464,12 +463,12 @@ pub fn main() !void {
         \\--------------------------------
         \\            Results:
         \\--------------------------------
-        \\  Target date:        {}
-        \\  Target sum:         {}
-        \\  Life path #:        {}
-        \\  Year range:         {}-{}
-        \\  Total occurrences:  {}
-        \\  Total days checked: {}
+        \\  Target date:        {f}
+        \\  Target sum:         {d}
+        \\  Life path #:        {d}
+        \\  Year range:         {d}-{d}
+        \\  Total occurrences:  {d}
+        \\  Total days checked: {d}
         \\  Percentage:         {d:.4}%
         \\  Elapsed time:       {d:.3}ms 
         \\--------------------------------
@@ -485,8 +484,8 @@ pub fn main() !void {
         calculatePercentFromInt(total_occurrences, total_days),
         elapsed_time / time.ns_per_ms,
     });
-    try buf.flush();
-    err_buf.flush() catch return;
+    try stdout.flush();
+    stderr.flush() catch return;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
