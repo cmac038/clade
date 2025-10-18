@@ -91,7 +91,7 @@ const ArgsError = error{
     InvalidFlag,
 };
 
-const Date = struct {
+pub const Date = struct {
     const Self = @This();
 
     year: u32,
