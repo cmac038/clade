@@ -4,11 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Create module for reusable code
-    const mod = b.addModule("clade", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-    });
+    // Create dependencies
+    const datez = b.dependency("datez", .{});
 
     // Create executable for CLI
     const exe = b.addExecutable(.{
@@ -17,8 +14,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            // Add dependencies here
             .imports = &.{
-                .{ .name = "clade", .module = mod },
+                .{ .name = "datez", .module = datez.module("datez") },
             },
         }),
     });
@@ -42,16 +40,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe.root_module,
     });
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    // Add unit tests for Date.zig
-    const date_unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/Date.zig"),
-            .target = target,
-        }),
-    });
-    const run_date_unit_tests = b.addRunArtifact(date_unit_tests);
     // Expose test step for convenient `zig build test`
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
-    test_step.dependOn(&run_date_unit_tests.step);
 }

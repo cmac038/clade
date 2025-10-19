@@ -11,8 +11,8 @@ const Thread = std.Thread;
 const Writer = std.Io.Writer;
 const print = std.debug.print;
 
-const clade = @import("clade");
-const Date = clade.Date;
+const datez = @import("datez");
+const Date = datez.Date;
 
 // Writers
 var stdout_buffer: [1024]u8 = undefined;
@@ -124,7 +124,7 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
     for (args, 0..) |arg, i| {
         switch (i) {
             0 => {
-                target_date = clade.parseDate(allocator, arg) catch |err| {
+                target_date = datez.parseDate(allocator, arg) catch |err| {
                     print(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
                     return err;
                 };
