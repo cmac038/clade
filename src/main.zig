@@ -92,7 +92,6 @@ const ArgsError = error{
 
 /// Sum up all the digits in the date
 /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
-/// Can sum any date up to year 100,000,000
 pub fn sumDigits(date: Date) u128 {
     switch (date) {
         .lite_date => |lite_date| {
@@ -144,8 +143,8 @@ fn calculatePercentFromInt(part: u64, whole: u64) f64 {
 
 /// Validate, parse, and store commandline args for use
 /// Arg 1: target date in mm/dd/yyyy format
-/// Arg 2: year to start from, positive int < 65535
-/// Arg 3: year to end at, positive int <= 65535
+/// Arg 2: year to start from, positive int
+/// Arg 3: year to end at, positive int > start_year
 /// Returns the target date for later use
 fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u128, end_year: *u128) !Date {
     var target_date: Date = undefined;
@@ -480,13 +479,13 @@ test "Date sumDigits 12/31/1950" {
     };
     try std.testing.expectEqual(22, sumDigits(date));
 }
-test "Date sumDigits 08/21/1996" {
+test "Date sumDigits 07/22/1996" {
     const date = Date{
         .lite_date = .{
             .year = 1996,
             .month_day = .{
-                .month = .aug,
-                .day_index = 21,
+                .month = .jul,
+                .day_index = 22,
             },
         },
     };
