@@ -92,6 +92,25 @@ const ArgsError = error{
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 
+/// Sum up all the digits in the date
+/// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
+/// Can sum any date up to year 100,000,000
+pub fn sumDigits(date: Date) u32 {
+    return sumDigitsRecursive(date.year, 10000000) + sumDigitsRecursive(date.month, 10) + sumDigitsRecursive(date.day, 10);
+}
+
+/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
+/// The divisor is used to deconstruct number e.g.:
+///     number = 1956
+///     divisor = 1000
+///     number / divisor = 1 (int division)
+/// This implementation uses recursion to divide the divisor by 10 at each step.
+inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
+    if (divisor == 1) {
+        return number;
+    }
+    return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
+}
 /// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
 /// The divisor is used to deconstruct number e.g.:
 ///     number = 1956
@@ -128,7 +147,7 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
                     print(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
                     return err;
                 };
-                target.* = target_date.sumDigits();
+                target.* = sumDigits(target_date);
             },
             1 => {
                 start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
@@ -175,7 +194,7 @@ fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_
         if (date.year == end_year) break;
 
         // check for match
-        if (date.sumDigits() == target) {
+        if (sumDigits(date) == target) {
             thread_state.occurrences += 1;
         }
     }
@@ -197,7 +216,7 @@ fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_y
         if (date.year == end_year) break;
 
         // check for match
-        if (date.sumDigits() == target) {
+        if (sumDigits(date) == target) {
             thread_state.occurrences += 1;
             try matchList.append(date);
         }
@@ -381,6 +400,23 @@ pub fn main() !void {
 //---------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------
 
+// TESTING
+// sumDigitsRecursive
+test "sumDigitsRecursive 1 digit" {
+    try std.testing.expectEqual(9, sumDigitsRecursive(9, 1));
+}
+test "sumDigitsRecursive 2 digit" {
+    try std.testing.expectEqual(6, sumDigitsRecursive(15, 10));
+}
+test "sumDigitsRecursive 3 digit" {
+    try std.testing.expectEqual(16, sumDigitsRecursive(286, 100));
+}
+test "sumDigitsRecursive 4 digit" {
+    try std.testing.expectEqual(25, sumDigitsRecursive(1996, 1000));
+}
+test "sumDigitsRecursive 8 digit" {
+    try std.testing.expectEqual(38, sumDigitsRecursive(19870526, 1e7));
+}
 // sumDigitsIterative
 test "sumDigitsIterative 1 digit" {
     try std.testing.expectEqual(9, sumDigitsIterative(9, 1));
@@ -396,4 +432,21 @@ test "sumDigitsIterative 4 digit" {
 }
 test "sumDigitsIterative 8 digit" {
     try std.testing.expectEqual(38, sumDigitsIterative(19870526, 1e7));
+}
+// sumDigits
+test "Date sumDigits 12/31/1950" {
+    const date = Date{
+        .year = 1950,
+        .month = 12,
+        .day = 31,
+    };
+    try std.testing.expectEqual(22, sumDigits(date));
+}
+test "Date sumDigits 08/21/1996" {
+    const date = Date{
+        .year = 1996,
+        .month = 8,
+        .day = 21,
+    };
+    try std.testing.expectEqual(36, sumDigits(date));
 }
