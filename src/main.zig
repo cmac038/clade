@@ -71,8 +71,6 @@ const usage = ANSI_BLUE ++
     \\          - TARGET_DATE must be in mm/dd/yyyy form
     \\          - START_YEAR & END_YEAR must be positive integers
     \\          - START_YEAR < END_YEAR
-    \\          - START_YEAR < 1e8
-    \\          - END_YEAR <= 1e8
     \\          - Include -p to print all matching dates
     \\
     \\
@@ -95,8 +93,19 @@ const ArgsError = error{
 /// Sum up all the digits in the date
 /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
 /// Can sum any date up to year 100,000,000
-pub fn sumDigits(date: Date) u32 {
-    return sumDigitsRecursive(date.year, 10000000) + sumDigitsRecursive(date.month, 10) + sumDigitsRecursive(date.day, 10);
+pub fn sumDigits(date: Date) u128 {
+    switch (date) {
+        .lite_date => |lite_date| {
+            return sumDigitsRecursive(lite_date.year, 10000) +
+                sumDigitsRecursive(lite_date.month_day.month.numeric(), 10) +
+                sumDigitsRecursive(lite_date.month_day.day_index, 10);
+        },
+        .big_date => |big_date| {
+            return sumDigitsRecursive(big_date.getTrueYear(), 1e9) +
+                sumDigitsRecursive(big_date.lite_date.month_day.month.numeric(), 10) +
+                sumDigitsRecursive(big_date.lite_date.month_day.day_index, 10);
+        },
+    }
 }
 
 /// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
@@ -105,7 +114,7 @@ pub fn sumDigits(date: Date) u32 {
 ///     divisor = 1000
 ///     number / divisor = 1 (int division)
 /// This implementation uses recursion to divide the divisor by 10 at each step.
-inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
+inline fn sumDigitsRecursive(number: u128, divisor: u128) u128 {
     if (divisor == 1) {
         return number;
     }
@@ -117,8 +126,8 @@ inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
 ///     divisor = 1000
 ///     number / divisor = 1 (int division)
 /// This implementation uses iteration to divide the divisor by 10 at each step.
-fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
-    var total: u32 = 0;
+fn sumDigitsIterative(input: u128, initial_divisor: u128) u128 {
+    var total: u128 = 0;
     var number = input;
     var divisor = initial_divisor;
     while (divisor > 1) : (divisor /= 10) {
@@ -135,10 +144,10 @@ fn calculatePercentFromInt(part: u64, whole: u64) f64 {
 
 /// Validate, parse, and store commandline args for use
 /// Arg 1: target date in mm/dd/yyyy format
-/// Arg 2: year to start from, positive int < 1e6
-/// Arg 3: year to end at, positive int < 1e6
+/// Arg 2: year to start from, positive int < 65535
+/// Arg 3: year to end at, positive int <= 65535
 /// Returns the target date for later use
-fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
+fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u128, end_year: *u128) !Date {
     var target_date: Date = undefined;
     for (args, 0..) |arg, i| {
         switch (i) {
@@ -150,24 +159,34 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
                 target.* = sumDigits(target_date);
             },
             1 => {
-                start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    print(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
-                    return err;
+                start_year.* = std.fmt.parseUnsigned(u128, arg, 10) catch |err| {
+                    switch (err) {
+                        error.Overflow => {
+                            print(error_message, .{ "START_YEAR is too big!", usage });
+                            return ArgsError.YearTooBig;
+                        },
+                        error.InvalidCharacter => {
+                            print(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
+                            return err;
+                        },
+                        else => unreachable,
+                    }
                 };
-                if (!(start_year.* < 1e8)) {
-                    print(error_message, .{ "START_YEAR is too big!", usage });
-                    return ArgsError.YearTooBig;
-                }
             },
             2 => {
-                end_year.* = std.fmt.parseUnsigned(u31, arg, 10) catch |err| {
-                    print(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
-                    return err;
+                end_year.* = std.fmt.parseUnsigned(u128, arg, 10) catch |err| {
+                    switch (err) {
+                        error.Overflow => {
+                            print(error_message, .{ "END_YEAR is too big!", usage });
+                            return ArgsError.YearTooBig;
+                        },
+                        error.InvalidCharacter => {
+                            print(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
+                            return err;
+                        },
+                        else => unreachable,
+                    }
                 };
-                if (end_year.* > 1e8) {
-                    print(error_message, .{ "END_YEAR is too big!", usage });
-                    return ArgsError.YearTooBig;
-                }
             },
             else => unreachable,
         }
@@ -187,14 +206,21 @@ const ThreadState = struct {
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked and number of matches
-fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState) !void {
-    var date: Date = .{ .month = 1, .day = 0, .year = start_year };
+fn checkDates(index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState) !void {
+    var start_date = try Date.create(start_year, 1, 0);
     while (true) : (thread_state.days_checked += 1) {
-        date.increment();
-        if (date.year == end_year) break;
+        start_date.increment();
+        switch (start_date) {
+            .lite_date => |lite_date| {
+                if (lite_date.year == end_year) break;
+            },
+            .big_date => |big_date| {
+                if (big_date.getTrueYear() == end_year) break;
+            }
+        }
 
         // check for match
-        if (sumDigits(date) == target) {
+        if (sumDigits(start_date) == target) {
             thread_state.occurrences += 1;
         }
     }
@@ -208,17 +234,24 @@ fn checkDates(index: usize, start_year: u32, end_year: u32, target: u32, thread_
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked and number of matches and stores matches for output (matches param)
-fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u32, end_year: u32, target: u32, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
-    var date: Date = .{ .month = 1, .day = 0, .year = start_year };
+fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
+    var start_date = try Date.create(start_year, 1, 0);
     var matchList = ArrayList(Date).init(allocator);
     while (true) : (thread_state.days_checked += 1) {
-        date.increment();
-        if (date.year == end_year) break;
+        start_date.increment();
+        switch (start_date) {
+            .lite_date => |lite_date| {
+                if (lite_date.year == end_year) break;
+            },
+            .big_date => |big_date| {
+                if (big_date.getTrueYear() == end_year) break;
+            }
+        }
 
         // check for match
-        if (sumDigits(date) == target) {
+        if (sumDigits(start_date) == target) {
             thread_state.occurrences += 1;
-            try matchList.append(date);
+            try matchList.append(start_date);
         }
     }
     std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
@@ -245,9 +278,9 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var target_date: Date = undefined;
-    var target: u32 = undefined;
-    var start_year: u32 = undefined;
-    var end_year: u32 = undefined;
+    var target: u128 = undefined;
+    var start_year: u128 = undefined;
+    var end_year: u128 = undefined;
     var print_flag: bool = false;
 
     // handle commandline args
@@ -308,8 +341,8 @@ pub fn main() !void {
         var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
         // calculate chunk size (number of years each thread will check)
-        const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
-        var start: u32 = start_year;
+        const chunk = (end_year - start_year) / @as(u128, @intCast(cpus));
+        var start: u128 = start_year;
         // start threads with different fn depending on if output will be printed
         for (0..cpus - 1) |i| {
             const end = start + chunk;
@@ -351,6 +384,7 @@ pub fn main() !void {
         , .{});
     }
     const date_struct_size = @sizeOf(Date);
+    std.log.debug("Date struct size: {d} bytes", .{date_struct_size});
     var total_size: u64 = 0;
     for (matches.items, 1..) |match_slice, i| {
         if (match_slice) |match| {
@@ -362,7 +396,7 @@ pub fn main() !void {
             allocator.free(match);
         }
     }
-    std.log.debug("total heap usage: {d:.5} GB", .{@as(f32, @floatFromInt(total_size)) / 1e9});
+    std.log.debug("total heap usage: {d:.5} MB", .{@as(f32, @floatFromInt(total_size)) / 1e6});
     if (total_size > 4e9) std.log.warn("heap size over 5 GB!!!", .{});
 
     const elapsed_time: f64 = @as(f64, @floatFromInt(timer.read()));
@@ -436,17 +470,25 @@ test "sumDigitsIterative 8 digit" {
 // sumDigits
 test "Date sumDigits 12/31/1950" {
     const date = Date{
-        .year = 1950,
-        .month = 12,
-        .day = 31,
+        .lite_date = .{
+            .year = 1950,
+            .month_day = .{
+                .month = .dec,
+                .day_index = 31,
+            },
+        },
     };
     try std.testing.expectEqual(22, sumDigits(date));
 }
 test "Date sumDigits 08/21/1996" {
     const date = Date{
-        .year = 1996,
-        .month = 8,
-        .day = 21,
+        .lite_date = .{
+            .year = 1996,
+            .month_day = .{
+                .month = .aug,
+                .day_index = 21,
+            },
+        },
     };
     try std.testing.expectEqual(36, sumDigits(date));
 }
