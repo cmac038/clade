@@ -25,8 +25,8 @@
     // internet connectivity.
     .dependencies = .{
         .datez = .{
-            .url = "git+https://github.com/cmac038/datez.git#f72a1db2b3ee03cf02590d4188cd47ee55e37f58",
-            .hash = "datez-0.0.0-gZU3WiUvAADLeGfojcCUd6z3TryKxAMQsaj9JLHwDKNQ",
+            .url = "git+https://github.com/cmac038/datez.git#a2ebc4ad4308d19116aba70fd21b4daac325f008",
+            .hash = "datez-0.0.0-gZU3Wt8wAADQlLX1en8WUkG4bdUKezQAQqRniTvlDJ2P",
         },
     },
     .paths = .{
