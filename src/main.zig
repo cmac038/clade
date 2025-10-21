@@ -206,7 +206,7 @@ const ThreadState = struct {
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked and number of matches
 fn checkDates(index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState) !void {
-    var start_date = try Date.create(start_year, 1, 0);
+    var start_date = try Date.fromInts(start_year, 1, 0);
     while (true) : (thread_state.days_checked += 1) {
         start_date.increment();
         switch (start_date) {
@@ -234,7 +234,7 @@ fn checkDates(index: usize, start_year: u128, end_year: u128, target: u128, thre
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked and number of matches and stores matches for output (matches param)
 fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
-    var start_date = try Date.create(start_year, 1, 0);
+    var start_date = try Date.fromInts(start_year, 1, 0);
     var matchList = ArrayList(Date).init(allocator);
     while (true) : (thread_state.days_checked += 1) {
         start_date.increment();
