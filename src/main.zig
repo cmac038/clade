@@ -70,13 +70,16 @@ const usage = ANSI_BLUE ++
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
     \\          - TARGET_DATE must be in mm/dd/yyyy form
     \\          - START_YEAR & END_YEAR must be positive integers
+    \\          - END_YEAR < 4_294_967_296
     \\          - START_YEAR < END_YEAR
     \\          - Include -p to print all matching dates
     \\
     \\
 ++ ANSI_RESET;
 
-const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++ "\n> ERROR: {s} <---" ++ ANSI_RESET ++ "\n{s}";
+const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++
+    "\n> ERROR: {s} - {s} <---" ++
+    ANSI_RESET ++ "\n{s}";
 
 const ArgsError = error{
     TooManyArgs,
@@ -86,9 +89,9 @@ const ArgsError = error{
     InvalidFlag,
 };
 
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
 
 /// Sum up all the digits in the date
 /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
@@ -152,20 +155,20 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u
         switch (i) {
             0 => {
                 target_date = datez.parseDate(allocator, arg) catch |err| {
-                    print(error_message, .{ "Invalid date format! Use mm/dd/yyyy", usage });
+                    print(error_message, .{ "TARGET_DATE", @errorName(err), usage });
                     return err;
                 };
                 target.* = sumDigits(target_date);
             },
             1 => {
-                start_year.* = std.fmt.parseUnsigned(u128, arg, 10) catch |err| {
+                start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
                     switch (err) {
                         error.Overflow => {
-                            print(error_message, .{ "START_YEAR is too big!", usage });
+                            print(error_message, .{ "START_YEAR", "YearTooBig", usage });
                             return ArgsError.YearTooBig;
                         },
                         error.InvalidCharacter => {
-                            print(error_message, .{ "Invalid arg! START_YEAR must be a positive integer.", usage });
+                            print(error_message, .{ "START_YEAR", "InvalidCharacter: START_YEAR must be a positive integer.", usage });
                             return err;
                         },
                         else => unreachable,
@@ -173,14 +176,14 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u
                 };
             },
             2 => {
-                end_year.* = std.fmt.parseUnsigned(u128, arg, 10) catch |err| {
+                end_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
                     switch (err) {
                         error.Overflow => {
-                            print(error_message, .{ "END_YEAR is too big!", usage });
+                            print(error_message, .{ "END_YEAR", "YearTooBig", usage });
                             return ArgsError.YearTooBig;
                         },
                         error.InvalidCharacter => {
-                            print(error_message, .{ "Invalid arg! END_YEAR must be a positive integer.", usage });
+                            print(error_message, .{ "END_YEAR", "InvalidCharacter: END_YEAR must be a positive integer.", usage });
                             return err;
                         },
                         else => unreachable,
@@ -191,7 +194,7 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u
         }
     }
     if (start_year.* >= end_year.*) {
-        print(error_message, .{ "START_YEAR must be less than END_YEAR!", usage });
+        print(error_message, .{ "START_YEAR", "Must be less than END_YEAR!", usage });
         return ArgsError.StartYearNotLessThanEndYear;
     }
     return target_date;
@@ -203,19 +206,25 @@ const ThreadState = struct {
     days_checked: u32,
 };
 
-/// Checks if the sum of date digits for all days between start_year and end_year match the target
+/// Checks if the sum of date digits for all days between start_year & end_year match the target
 /// Counts total days checked and number of matches
-fn checkDates(index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState) !void {
-    var start_date = try Date.fromInts(start_year, 1, 0);
+fn checkDates(
+    index: usize,
+    start_year: u128,
+    end_year: u128,
+    target: u128,
+    thread_state: *ThreadState,
+) !void {
+    var start_date = try Date.fromInts(start_year, 1, 1);
     while (true) : (thread_state.days_checked += 1) {
-        start_date.increment();
+        try start_date.increment();
         switch (start_date) {
             .lite_date => |lite_date| {
                 if (lite_date.year == end_year) break;
             },
             .big_date => |big_date| {
                 if (big_date.getTrueYear() == end_year) break;
-            }
+            },
         }
 
         // check for match
@@ -233,18 +242,26 @@ fn checkDates(index: usize, start_year: u128, end_year: u128, target: u128, thre
 
 /// Checks if the sum of date digits for all days between start_year and end_year match the target
 /// Counts total days checked and number of matches and stores matches for output (matches param)
-fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u128, end_year: u128, target: u128, thread_state: *ThreadState, matches: *ArrayList(?[]Date)) !void {
-    var start_date = try Date.fromInts(start_year, 1, 0);
+fn checkDatesForPrint(
+    allocator: Allocator,
+    index: usize,
+    start_year: u128,
+    end_year: u128,
+    target: u128,
+    thread_state: *ThreadState,
+    matches: *ArrayList(?[]Date),
+) !void {
+    var start_date = try Date.fromInts(start_year, 1, 1);
     var matchList = ArrayList(Date).init(allocator);
     while (true) : (thread_state.days_checked += 1) {
-        start_date.increment();
+        try start_date.increment();
         switch (start_date) {
             .lite_date => |lite_date| {
                 if (lite_date.year == end_year) break;
             },
             .big_date => |big_date| {
                 if (big_date.getTrueYear() == end_year) break;
-            }
+            },
         }
 
         // check for match
@@ -262,9 +279,9 @@ fn checkDatesForPrint(allocator: Allocator, index: usize, start_year: u128, end_
     matches.items[index] = try matchList.toOwnedSlice();
 }
 
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
 
 pub fn main() !void {
     var timer = try std.time.Timer.start();
@@ -290,7 +307,7 @@ pub fn main() !void {
             return;
         },
         2, 3 => {
-            print(error_message, .{ "Too few args!", usage });
+            print(error_message, .{ "TooFewArgs", "At least 3 are required.", usage });
             return ArgsError.TooFewArgs;
         },
         4 => {
@@ -298,14 +315,14 @@ pub fn main() !void {
         },
         5 => {
             if (!std.mem.eql(u8, args[1], "-p")) {
-                print(error_message, .{ "Invalid flag format!", usage });
+                print(error_message, .{ "InvalidFlag", "Wrong flag format!", usage });
                 return ArgsError.InvalidFlag;
             }
             target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
             print_flag = true;
         },
         else => {
-            print(error_message, .{ "Too many args!", usage });
+            print(error_message, .{ "TooManyArgs", "No more than 4 allowed.", usage });
             return ArgsError.TooManyArgs;
         },
     }
@@ -429,9 +446,9 @@ pub fn main() !void {
     stderr.flush() catch return;
 }
 
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
 
 // TESTING
 // sumDigitsRecursive
