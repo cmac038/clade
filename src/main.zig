@@ -95,7 +95,7 @@ const ArgsError = error{
 
 /// Sum up all the digits in the date
 /// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
-pub fn sumDigits(date: Date) u128 {
+pub fn sumDigits(date: Date) u32 {
     switch (date) {
         .lite_date => |lite_date| {
             return sumDigitsRecursive(lite_date.year, 10000) +
@@ -116,7 +116,7 @@ pub fn sumDigits(date: Date) u128 {
 ///     divisor = 1000
 ///     number / divisor = 1 (int division)
 /// This implementation uses recursion to divide the divisor by 10 at each step.
-inline fn sumDigitsRecursive(number: u128, divisor: u128) u128 {
+inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
     if (divisor == 1) {
         return number;
     }
@@ -128,8 +128,8 @@ inline fn sumDigitsRecursive(number: u128, divisor: u128) u128 {
 ///     divisor = 1000
 ///     number / divisor = 1 (int division)
 /// This implementation uses iteration to divide the divisor by 10 at each step.
-fn sumDigitsIterative(input: u128, initial_divisor: u128) u128 {
-    var total: u128 = 0;
+fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
+    var total: u32 = 0;
     var number = input;
     var divisor = initial_divisor;
     while (divisor > 1) : (divisor /= 10) {
@@ -149,7 +149,7 @@ fn calculatePercentFromInt(part: u64, whole: u64) f64 {
 /// Arg 2: year to start from, positive int
 /// Arg 3: year to end at, positive int > start_year
 /// Returns the target date for later use
-fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u128, start_year: *u128, end_year: *u128) !Date {
+fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
     var target_date: Date = undefined;
     for (args, 0..) |arg, i| {
         switch (i) {
@@ -210,9 +210,9 @@ const ThreadState = struct {
 /// Counts total days checked and number of matches
 fn checkDates(
     index: usize,
-    start_year: u128,
-    end_year: u128,
-    target: u128,
+    start_year: u32,
+    end_year: u32,
+    target: u32,
     thread_state: *ThreadState,
 ) !void {
     var start_date = try Date.fromInts(start_year, 1, 1);
@@ -245,9 +245,9 @@ fn checkDates(
 fn checkDatesForPrint(
     allocator: Allocator,
     index: usize,
-    start_year: u128,
-    end_year: u128,
-    target: u128,
+    start_year: u32,
+    end_year: u32,
+    target: u32,
     thread_state: *ThreadState,
     matches: *ArrayList(?[]Date),
 ) !void {
@@ -294,9 +294,9 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var target_date: Date = undefined;
-    var target: u128 = undefined;
-    var start_year: u128 = undefined;
-    var end_year: u128 = undefined;
+    var target: u32 = undefined;
+    var start_year: u32 = undefined;
+    var end_year: u32 = undefined;
     var print_flag: bool = false;
 
     // handle commandline args
@@ -357,8 +357,8 @@ pub fn main() !void {
         var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
         defer handles.deinit();
         // calculate chunk size (number of years each thread will check)
-        const chunk = (end_year - start_year) / @as(u128, @intCast(cpus));
-        var start: u128 = start_year;
+        const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
+        var start: u32 = start_year;
         // start threads with different fn depending on if output will be printed
         for (0..cpus - 1) |i| {
             const end = start + chunk;
