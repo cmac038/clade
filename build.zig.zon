@@ -27,6 +27,9 @@
         .datez = .{
             .path = "../datez"
         },
+        .zansi = .{
+            .path = "../zansi"
+        },
     },
     .paths = .{
         "build.zig",

@@ -13,6 +13,9 @@ const print = std.debug.print;
 
 const datez = @import("datez");
 const Date = datez.Date;
+const zansi = @import("zansi");
+const style = zansi.style;
+const color = zansi.color;
 
 // Writers
 var stdout_buffer: [1024]u8 = undefined;
@@ -38,11 +41,11 @@ fn myLogFn(
     args: anytype,
 ) void {
     const level_txt = switch (message_level) {
-        std.log.Level.err => ANSI_RED,
-        std.log.Level.warn => ANSI_YELLOW,
-        std.log.Level.debug => ANSI_MAGENTA,
-        std.log.Level.info => ANSI_CYAN,
-    } ++ "[" ++ comptime message_level.asText() ++ "]" ++ ANSI_RESET;
+        std.log.Level.err => color.red,
+        std.log.Level.warn => color.yellow,
+        std.log.Level.debug => color.magenta,
+        std.log.Level.info => color.cyan,
+    } ++ "[" ++ comptime message_level.asText() ++ "]" ++ zansi.reset;
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
     std.debug.lockStdErr();
@@ -53,18 +56,8 @@ fn myLogFn(
     }
 }
 
-// ANSI escape sequences
-const ANSI_RED = "\x1b[31m";
-const ANSI_YELLOW = "\x1b[33m";
-const ANSI_BLUE = "\x1b[34m";
-const ANSI_CYAN = "\x1b[36m";
-const ANSI_MAGENTA = "\x1b[35m";
-const ANSI_BLINK = "\x1b[5m";
-const ANSI_BOLD = "\x1b[1m";
-const ANSI_RESET = "\x1b[0m";
-
 // string statics
-const usage = ANSI_BLUE ++
+const usage = color.blue ++
     \\
     \\    Usage: 
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
@@ -75,11 +68,11 @@ const usage = ANSI_BLUE ++
     \\          - Include -p to print all matching dates
     \\
     \\
-++ ANSI_RESET;
+++ zansi.reset;
 
-const error_message = ANSI_BLINK ++ ANSI_BOLD ++ ANSI_RED ++
+const error_message = style.blink ++ style.bold ++ color.red ++
     "\n> ERROR: {s} - {s} <---" ++
-    ANSI_RESET ++ "\n{s}";
+    zansi.reset ++ "\n{s}";
 
 const ArgsError = error{
     TooManyArgs,

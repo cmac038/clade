@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
 
     // Create dependencies
     const datez = b.dependency("datez", .{});
+    const zansi = b.dependency("zansi", .{});
 
     // Create executable for CLI
     const exe = b.addExecutable(.{
@@ -17,6 +18,7 @@ pub fn build(b: *std.Build) void {
             // Add dependencies here
             .imports = &.{
                 .{ .name = "datez", .module = datez.module("datez") },
+                .{ .name = "zansi", .module = zansi.module("zansi") },
             },
         }),
     });
