@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.array_list.Managed;
+const ArrayList = std.ArrayList;
 const Thread = std.Thread;
 const Writer = std.Io.Writer;
 const print = std.debug.print;
@@ -252,7 +252,7 @@ fn checkDatesForPrint(
     matches: *ArrayList(?[]Date),
 ) !void {
     var start_date = try Date.fromInts(start_year, 1, 1);
-    var matchList = ArrayList(Date).init(allocator);
+    var matchList = ArrayList(Date).empty;
     while (true) : (thread_state.days_checked += 1) {
         try start_date.increment();
         switch (start_date) {
@@ -267,7 +267,7 @@ fn checkDatesForPrint(
         // check for match
         if (sumDigits(start_date) == target) {
             thread_state.occurrences += 1;
-            try matchList.append(start_date);
+            try matchList.append(allocator, start_date);
         }
     }
     std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
@@ -276,7 +276,7 @@ fn checkDatesForPrint(
         thread_state.occurrences,
         calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
     });
-    matches.items[index] = try matchList.toOwnedSlice();
+    matches.items[index] = try matchList.toOwnedSlice(allocator);
 }
 
 //---------------------------------------------------------------------------------------
@@ -331,11 +331,11 @@ pub fn main() !void {
 
     var total_occurrences: u64 = 0;
     var total_days: u64 = 0;
-    var matches = ArrayList(?[]Date).init(allocator);
+    var matches = ArrayList(?[]Date).empty;
     for (0..cpus) |_| {
-        try matches.append(null);
+        try matches.append(allocator, null);
     }
-    defer matches.deinit();
+    defer matches.deinit(allocator);
 
     // don't multithread when the date range is less than number of logical cores
     if (end_year - start_year < cpus) {
@@ -351,11 +351,11 @@ pub fn main() !void {
         std.log.info("Starting {} threads...", .{cpus});
         // storage for Thread accumulators
         var thread_accumulators = try ArrayList(ThreadState).initCapacity(allocator, cpus);
-        defer thread_accumulators.deinit();
-        try thread_accumulators.appendNTimes(.{ .occurrences = 0, .days_checked = 0 }, cpus);
+        defer thread_accumulators.deinit(allocator);
+        try thread_accumulators.appendNTimes(allocator, .{ .occurrences = 0, .days_checked = 0 }, cpus);
         // keep track of thread handles
         var handles = try ArrayList(Thread).initCapacity(allocator, cpus);
-        defer handles.deinit();
+        defer handles.deinit(allocator);
         // calculate chunk size (number of years each thread will check)
         const chunk = (end_year - start_year) / @as(u32, @intCast(cpus));
         var start: u32 = start_year;
@@ -368,7 +368,7 @@ pub fn main() !void {
             } else {
                 handle = try Thread.spawn(.{}, checkDates, .{ i, start, end, target, &thread_accumulators.items[i] });
             }
-            try handles.append(handle);
+            try handles.append(allocator, handle);
             start += chunk;
         }
         // last thread handles remaining years (sometimes bigger than chunk)
@@ -378,7 +378,7 @@ pub fn main() !void {
         } else {
             lastHandle = try Thread.spawn(.{}, checkDates, .{ cpus - 1, start, end_year, target, &thread_accumulators.items[cpus - 1] });
         }
-        try handles.append(lastHandle);
+        try handles.append(allocator, lastHandle);
 
         // resolve threads before moving forward
         for (handles.items) |handle| {
