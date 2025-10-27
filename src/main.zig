@@ -1,281 +1,6 @@
 //! This program outputs dates which add up to a target number.
 //! START_YEAR and END_YEAR delineate the date range.
 //! Matching dates can optionally be printed.
-
-const builtin = @import("builtin");
-
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const Thread = std.Thread;
-const Writer = std.Io.Writer;
-const print = std.debug.print;
-
-const datez = @import("datez");
-const Date = datez.Date;
-const zansi = @import("zansi");
-const style = zansi.style;
-const color = zansi.color;
-
-// Writers
-var stdout_buffer: [1024]u8 = undefined;
-var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-const stdout = &stdout_writer.interface;
-
-var stderr_buffer: [1024]u8 = undefined;
-var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-const stderr = &stderr_writer.interface;
-
-pub const std_options: std.Options = .{
-    .log_level = switch (builtin.mode) {
-        .Debug => .debug,
-        else => .info,
-    },
-    .logFn = myLogFn,
-};
-
-fn myLogFn(
-    comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    const level_txt = switch (message_level) {
-        std.log.Level.err => color.red,
-        std.log.Level.warn => color.yellow,
-        std.log.Level.debug => color.magenta,
-        std.log.Level.info => color.cyan,
-    } ++ "[" ++ comptime message_level.asText() ++ "]" ++ zansi.reset;
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    nosuspend {
-        stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        if (message_level == std.log.Level.info) stderr.flush() catch return;
-    }
-}
-
-// string statics
-const usage = color.blue ++
-    \\
-    \\    Usage: 
-    \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
-    \\          - TARGET_DATE must be in mm/dd/yyyy form
-    \\          - START_YEAR & END_YEAR must be positive integers
-    \\          - END_YEAR < 4_294_967_296
-    \\          - START_YEAR < END_YEAR
-    \\          - Include -p to print all matching dates
-    \\
-    \\
-++ zansi.reset;
-
-const error_message = style.blink ++ style.bold ++ color.red ++
-    "\n> ERROR: {s} - {s} <---" ++
-    zansi.reset ++ "\n{s}";
-
-const ArgsError = error{
-    TooManyArgs,
-    TooFewArgs,
-    YearTooBig,
-    StartYearNotLessThanEndYear,
-    InvalidFlag,
-};
-
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-
-/// Sum up all the digits in the date
-/// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
-pub fn sumDigits(date: Date) u32 {
-    switch (date) {
-        .lite_date => |lite_date| {
-            return sumDigitsRecursive(lite_date.year, 10000) +
-                sumDigitsRecursive(lite_date.month_day.month.numeric(), 10) +
-                sumDigitsRecursive(lite_date.month_day.day_index, 10);
-        },
-        .big_date => |big_date| {
-            return sumDigitsRecursive(big_date.getTrueYear(), 1e9) +
-                sumDigitsRecursive(big_date.lite_date.month_day.month.numeric(), 10) +
-                sumDigitsRecursive(big_date.lite_date.month_day.day_index, 10);
-        },
-    }
-}
-
-/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
-/// The divisor is used to deconstruct number e.g.:
-///     number = 1956
-///     divisor = 1000
-///     number / divisor = 1 (int division)
-/// This implementation uses recursion to divide the divisor by 10 at each step.
-inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
-    if (divisor == 1) {
-        return number;
-    }
-    return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
-}
-/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
-/// The divisor is used to deconstruct number e.g.:
-///     number = 1956
-///     divisor = 1000
-///     number / divisor = 1 (int division)
-/// This implementation uses iteration to divide the divisor by 10 at each step.
-fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
-    var total: u32 = 0;
-    var number = input;
-    var divisor = initial_divisor;
-    while (divisor > 1) : (divisor /= 10) {
-        total += (number / divisor);
-        number %= divisor;
-    }
-    return total + number;
-}
-
-/// Handle float casts to properly calculate percentage from ints
-fn calculatePercentFromInt(part: u64, whole: u64) f64 {
-    return (@as(f64, @floatFromInt(part)) / @as(f64, @floatFromInt(whole))) * 100;
-}
-
-/// Validate, parse, and store commandline args for use
-/// Arg 1: target date in mm/dd/yyyy format
-/// Arg 2: year to start from, positive int
-/// Arg 3: year to end at, positive int > start_year
-/// Returns the target date for later use
-fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
-    var target_date: Date = undefined;
-    for (args, 0..) |arg, i| {
-        switch (i) {
-            0 => {
-                target_date = datez.parseDate(allocator, arg) catch |err| {
-                    print(error_message, .{ "TARGET_DATE", @errorName(err), usage });
-                    return err;
-                };
-                target.* = sumDigits(target_date);
-            },
-            1 => {
-                start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    switch (err) {
-                        error.Overflow => {
-                            print(error_message, .{ "START_YEAR", "YearTooBig", usage });
-                            return ArgsError.YearTooBig;
-                        },
-                        error.InvalidCharacter => {
-                            print(error_message, .{ "START_YEAR", "InvalidCharacter: START_YEAR must be a positive integer.", usage });
-                            return err;
-                        },
-                        else => unreachable,
-                    }
-                };
-            },
-            2 => {
-                end_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
-                    switch (err) {
-                        error.Overflow => {
-                            print(error_message, .{ "END_YEAR", "YearTooBig", usage });
-                            return ArgsError.YearTooBig;
-                        },
-                        error.InvalidCharacter => {
-                            print(error_message, .{ "END_YEAR", "InvalidCharacter: END_YEAR must be a positive integer.", usage });
-                            return err;
-                        },
-                        else => unreachable,
-                    }
-                };
-            },
-            else => unreachable,
-        }
-    }
-    if (start_year.* >= end_year.*) {
-        print(error_message, .{ "START_YEAR", "Must be less than END_YEAR!", usage });
-        return ArgsError.StartYearNotLessThanEndYear;
-    }
-    return target_date;
-}
-
-/// Holds state for multithreading
-const ThreadState = struct {
-    occurrences: u32,
-    days_checked: u32,
-};
-
-/// Checks if the sum of date digits for all days between start_year & end_year match the target
-/// Counts total days checked and number of matches
-fn checkDates(
-    index: usize,
-    start_year: u32,
-    end_year: u32,
-    target: u32,
-    thread_state: *ThreadState,
-) !void {
-    var start_date = try Date.fromInts(start_year, 1, 1);
-    while (true) : (thread_state.days_checked += 1) {
-        try start_date.increment();
-        switch (start_date) {
-            .lite_date => |lite_date| {
-                if (lite_date.year == end_year) break;
-            },
-            .big_date => |big_date| {
-                if (big_date.getTrueYear() == end_year) break;
-            },
-        }
-
-        // check for match
-        if (sumDigits(start_date) == target) {
-            thread_state.occurrences += 1;
-        }
-    }
-    std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
-        index + 1,
-        thread_state.days_checked,
-        thread_state.occurrences,
-        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
-    });
-}
-
-/// Checks if the sum of date digits for all days between start_year and end_year match the target
-/// Counts total days checked and number of matches and stores matches for output (matches param)
-fn checkDatesForPrint(
-    allocator: Allocator,
-    index: usize,
-    start_year: u32,
-    end_year: u32,
-    target: u32,
-    thread_state: *ThreadState,
-    matches: *ArrayList(?[]Date),
-) !void {
-    var start_date = try Date.fromInts(start_year, 1, 1);
-    var matchList = ArrayList(Date).empty;
-    while (true) : (thread_state.days_checked += 1) {
-        try start_date.increment();
-        switch (start_date) {
-            .lite_date => |lite_date| {
-                if (lite_date.year == end_year) break;
-            },
-            .big_date => |big_date| {
-                if (big_date.getTrueYear() == end_year) break;
-            },
-        }
-
-        // check for match
-        if (sumDigits(start_date) == target) {
-            thread_state.occurrences += 1;
-            try matchList.append(allocator, start_date);
-        }
-    }
-    std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
-        index + 1,
-        thread_state.days_checked,
-        thread_state.occurrences,
-        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
-    });
-    matches.items[index] = try matchList.toOwnedSlice(allocator);
-}
-
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------
-
 pub fn main() !void {
     var timer = try std.time.Timer.start();
 
@@ -438,6 +163,279 @@ pub fn main() !void {
     try stdout.flush();
     stderr.flush() catch return;
 }
+
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+
+/// Sum up all the digits in the date
+/// e.g. 06/27/1998 -> 6 + 2 + 7 + 1 + 9 + 9 + 8
+pub fn sumDigits(date: Date) u32 {
+    switch (date) {
+        .lite_date => |lite_date| {
+            return sumDigitsRecursive(lite_date.year, 10000) +
+                sumDigitsRecursive(lite_date.month_day.month.numeric(), 10) +
+                sumDigitsRecursive(lite_date.month_day.day_index, 10);
+        },
+        .big_date => |big_date| {
+            return sumDigitsRecursive(big_date.getTrueYear(), 1e9) +
+                sumDigitsRecursive(big_date.lite_date.month_day.month.numeric(), 10) +
+                sumDigitsRecursive(big_date.lite_date.month_day.day_index, 10);
+        },
+    }
+}
+
+/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
+/// The divisor is used to deconstruct number e.g.:
+///     number = 1956
+///     divisor = 1000
+///     number / divisor = 1 (int division)
+/// This implementation uses recursion to divide the divisor by 10 at each step.
+inline fn sumDigitsRecursive(number: u32, divisor: u32) u32 {
+    if (divisor == 1) {
+        return number;
+    }
+    return (number / divisor) + sumDigitsRecursive(number % divisor, divisor / 10);
+}
+/// Sum digits in a base-10 number; an initial power of 10 divisor must be provided.
+/// The divisor is used to deconstruct number e.g.:
+///     number = 1956
+///     divisor = 1000
+///     number / divisor = 1 (int division)
+/// This implementation uses iteration to divide the divisor by 10 at each step.
+fn sumDigitsIterative(input: u32, initial_divisor: u32) u32 {
+    var total: u32 = 0;
+    var number = input;
+    var divisor = initial_divisor;
+    while (divisor > 1) : (divisor /= 10) {
+        total += (number / divisor);
+        number %= divisor;
+    }
+    return total + number;
+}
+
+/// Handle float casts to properly calculate percentage from ints
+fn calculatePercentFromInt(part: u64, whole: u64) f64 {
+    return (@as(f64, @floatFromInt(part)) / @as(f64, @floatFromInt(whole))) * 100;
+}
+
+/// Validate, parse, and store commandline args for use
+/// Arg 1: target date in mm/dd/yyyy format
+/// Arg 2: year to start from, positive int
+/// Arg 3: year to end at, positive int > start_year
+/// Returns the target date for later use
+fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u32, end_year: *u32) !Date {
+    var target_date: Date = undefined;
+    for (args, 0..) |arg, i| {
+        switch (i) {
+            0 => {
+                target_date = datez.parseDate(allocator, arg) catch |err| {
+                    print(error_message, .{ "TARGET_DATE", @errorName(err), usage });
+                    return err;
+                };
+                target.* = sumDigits(target_date);
+            },
+            1 => {
+                start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                    switch (err) {
+                        error.Overflow => {
+                            print(error_message, .{ "START_YEAR", "YearTooBig", usage });
+                            return ArgsError.YearTooBig;
+                        },
+                        error.InvalidCharacter => {
+                            print(error_message, .{ "START_YEAR", "InvalidCharacter: START_YEAR must be a positive integer.", usage });
+                            return err;
+                        },
+                        else => unreachable,
+                    }
+                };
+            },
+            2 => {
+                end_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
+                    switch (err) {
+                        error.Overflow => {
+                            print(error_message, .{ "END_YEAR", "YearTooBig", usage });
+                            return ArgsError.YearTooBig;
+                        },
+                        error.InvalidCharacter => {
+                            print(error_message, .{ "END_YEAR", "InvalidCharacter: END_YEAR must be a positive integer.", usage });
+                            return err;
+                        },
+                        else => unreachable,
+                    }
+                };
+            },
+            else => unreachable,
+        }
+    }
+    if (start_year.* >= end_year.*) {
+        print(error_message, .{ "START_YEAR", "Must be less than END_YEAR!", usage });
+        return ArgsError.StartYearNotLessThanEndYear;
+    }
+    return target_date;
+}
+
+/// Checks if the sum of date digits for all days between start_year & end_year match the target
+/// Counts total days checked and number of matches
+fn checkDates(
+    index: usize,
+    start_year: u32,
+    end_year: u32,
+    target: u32,
+    thread_state: *ThreadState,
+) !void {
+    var start_date = try Date.fromInts(start_year, 1, 1);
+    while (true) : (thread_state.days_checked += 1) {
+        try start_date.increment();
+        switch (start_date) {
+            .lite_date => |lite_date| {
+                if (lite_date.year == end_year) break;
+            },
+            .big_date => |big_date| {
+                if (big_date.getTrueYear() == end_year) break;
+            },
+        }
+
+        // check for match
+        if (sumDigits(start_date) == target) {
+            thread_state.occurrences += 1;
+        }
+    }
+    std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
+        index + 1,
+        thread_state.days_checked,
+        thread_state.occurrences,
+        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
+    });
+}
+
+/// Checks if the sum of date digits for all days between start_year and end_year match the target
+/// Counts total days checked and number of matches and stores matches for output (matches param)
+fn checkDatesForPrint(
+    allocator: Allocator,
+    index: usize,
+    start_year: u32,
+    end_year: u32,
+    target: u32,
+    thread_state: *ThreadState,
+    matches: *ArrayList(?[]Date),
+) !void {
+    var start_date = try Date.fromInts(start_year, 1, 1);
+    var matchList = ArrayList(Date).empty;
+    while (true) : (thread_state.days_checked += 1) {
+        try start_date.increment();
+        switch (start_date) {
+            .lite_date => |lite_date| {
+                if (lite_date.year == end_year) break;
+            },
+            .big_date => |big_date| {
+                if (big_date.getTrueYear() == end_year) break;
+            },
+        }
+
+        // check for match
+        if (sumDigits(start_date) == target) {
+            thread_state.occurrences += 1;
+            try matchList.append(allocator, start_date);
+        }
+    }
+    std.log.info("Thread {:>2} finished -> {} days checked with {:>9} matches ({d:.4}%)", .{
+        index + 1,
+        thread_state.days_checked,
+        thread_state.occurrences,
+        calculatePercentFromInt(thread_state.occurrences, thread_state.days_checked),
+    });
+    matches.items[index] = try matchList.toOwnedSlice(allocator);
+}
+
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+
+/// Holds state for multithreading
+const ThreadState = struct {
+    occurrences: u32,
+    days_checked: u32,
+};
+
+const ArgsError = error{
+    TooManyArgs,
+    TooFewArgs,
+    YearTooBig,
+    StartYearNotLessThanEndYear,
+    InvalidFlag,
+};
+
+// string statics
+const usage = color.fg.blue ++
+    \\
+    \\    Usage: 
+    \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
+    \\          - TARGET_DATE must be in mm/dd/yyyy form
+    \\          - START_YEAR & END_YEAR must be positive integers
+    \\          - END_YEAR < 4_294_967_296
+    \\          - START_YEAR < END_YEAR
+    \\          - Include -p to print all matching dates
+    \\
+    \\
+++ zansi.reset;
+
+const error_message = style.blink ++ style.bold ++ color.fg.red ++
+    "\n> ERROR: {s} - {s} <---" ++
+    zansi.reset ++ "\n{s}";
+
+// Writers
+var stdout_buffer: [1024]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
+
+var stderr_buffer: [1024]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const stderr = &stderr_writer.interface;
+
+pub const std_options: std.Options = .{
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        else => .info,
+    },
+    .logFn = myLogFn,
+};
+
+fn myLogFn(
+    comptime message_level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const level_txt = switch (message_level) {
+        std.log.Level.err => color.fg.red,
+        std.log.Level.warn => color.fg.yellow,
+        std.log.Level.debug => color.fg.magenta,
+        std.log.Level.info => color.fg.cyan,
+    } ++ "[" ++ comptime message_level.asText() ++ "]" ++ zansi.reset;
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+    nosuspend {
+        stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        if (message_level == std.log.Level.info) stderr.flush() catch return;
+    }
+}
+
+const builtin = @import("builtin");
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Thread = std.Thread;
+const Writer = std.Io.Writer;
+const print = std.debug.print;
+
+const datez = @import("datez");
+const Date = datez.Date;
+const zansi = @import("zansi");
+const style = zansi.style;
+const color = zansi.color;
 
 //---------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------
