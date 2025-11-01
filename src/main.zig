@@ -20,12 +20,14 @@ pub fn main() !void {
     // handle commandline args
     switch (args.len) {
         1 => {
-            try stdout.print("{s}", .{usage});
-            try stdout.flush();
+            try stderr.print(usage, .{});
+            try stderr.flush();
             return;
         },
         2, 3 => {
-            print(error_message, .{ "TooFewArgs", "At least 3 are required.", usage });
+            try stderr.print(error_message, .{ "TooFewArgs", "At least 3 are required." });
+            try stderr.print(usage, .{});
+            try stderr.flush();
             return ArgsError.TooFewArgs;
         },
         4 => {
@@ -33,14 +35,18 @@ pub fn main() !void {
         },
         5 => {
             if (!std.mem.eql(u8, args[1], "-p")) {
-                print(error_message, .{ "InvalidFlag", "Wrong flag format!", usage });
+                try stderr.print(error_message, .{ "InvalidFlag", "Wrong flag format!" });
+                try stderr.print(usage, .{});
+                try stderr.flush();
                 return ArgsError.InvalidFlag;
             }
             target_date = try parseArgs(allocator, args[2..], &target, &start_year, &end_year);
             print_flag = true;
         },
         else => {
-            print(error_message, .{ "TooManyArgs", "No more than 4 allowed.", usage });
+            try stderr.print(error_message, .{ "TooManyArgs", "No more than 4 allowed." });
+            try stderr.print(usage, .{});
+            try stderr.flush();
             return ArgsError.TooManyArgs;
         },
     }
@@ -230,7 +236,9 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
         switch (i) {
             0 => {
                 target_date = datez.parseDate(allocator, arg) catch |err| {
-                    print(error_message, .{ "TARGET_DATE", @errorName(err), usage });
+                    try stderr.print(error_message, .{ "TARGET_DATE", @errorName(err) });
+                    try stderr.print(usage, .{});
+                    try stderr.flush();
                     return err;
                 };
                 target.* = sumDigits(target_date);
@@ -239,11 +247,15 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
                 start_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
                     switch (err) {
                         error.Overflow => {
-                            print(error_message, .{ "START_YEAR", "YearTooBig", usage });
+                            try stderr.print(error_message, .{ "START_YEAR", "YearTooBig" });
+                            try stderr.print(usage, .{});
+                            try stderr.flush();
                             return ArgsError.YearTooBig;
                         },
                         error.InvalidCharacter => {
-                            print(error_message, .{ "START_YEAR", "InvalidCharacter: START_YEAR must be a positive integer.", usage });
+                            try stderr.print(error_message, .{ "START_YEAR", "InvalidCharacter: START_YEAR must be a positive integer." });
+                            try stderr.print(usage, .{});
+                            try stderr.flush();
                             return err;
                         },
                         else => unreachable,
@@ -254,11 +266,15 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
                 end_year.* = std.fmt.parseUnsigned(u32, arg, 10) catch |err| {
                     switch (err) {
                         error.Overflow => {
-                            print(error_message, .{ "END_YEAR", "YearTooBig", usage });
+                            try stderr.print(error_message, .{ "END_YEAR", "YearTooBig" });
+                            try stderr.print(usage, .{});
+                            try stderr.flush();
                             return ArgsError.YearTooBig;
                         },
                         error.InvalidCharacter => {
-                            print(error_message, .{ "END_YEAR", "InvalidCharacter: END_YEAR must be a positive integer.", usage });
+                            try stderr.print(error_message, .{ "END_YEAR", "InvalidCharacter: END_YEAR must be a positive integer." });
+                            try stderr.print(usage, .{});
+                            try stderr.flush();
                             return err;
                         },
                         else => unreachable,
@@ -269,7 +285,9 @@ fn parseArgs(allocator: Allocator, args: [][:0]u8, target: *u32, start_year: *u3
         }
     }
     if (start_year.* >= end_year.*) {
-        print(error_message, .{ "START_YEAR", "Must be less than END_YEAR!", usage });
+        try stderr.print(error_message, .{ "START_YEAR", "Must be less than END_YEAR!" });
+        try stderr.print(usage, .{});
+        try stderr.flush();
         return ArgsError.StartYearNotLessThanEndYear;
     }
     return target_date;
@@ -367,7 +385,7 @@ const ArgsError = error{
 };
 
 // string statics
-const usage = color.fg.blue ++
+const usage = color.Fg.static.blue ++
     \\
     \\    Usage: 
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
@@ -380,9 +398,8 @@ const usage = color.fg.blue ++
     \\
 ++ zansi.reset;
 
-const error_message = style.blink ++ style.bold ++ color.fg.red ++
-    "\n> ERROR: {s} - {s} <---" ++
-    zansi.reset ++ "\n{s}";
+const error_message = color.Fg.static.red ++ style.static.blink ++ style.static.bold ++
+    "\n> ERROR: {s} - {s} <---\n" ++ zansi.reset;
 
 // Writers
 var stdout_buffer: [1024]u8 = undefined;
@@ -408,10 +425,10 @@ fn myLogFn(
     args: anytype,
 ) void {
     const level_txt = switch (message_level) {
-        std.log.Level.err => color.fg.red,
-        std.log.Level.warn => color.fg.yellow,
-        std.log.Level.debug => color.fg.magenta,
-        std.log.Level.info => color.fg.cyan,
+        std.log.Level.err => color.Fg.static.red,
+        std.log.Level.warn => color.Fg.static.yellow,
+        std.log.Level.debug => color.Fg.static.magenta,
+        std.log.Level.info => color.Fg.static.cyan,
     } ++ "[" ++ comptime message_level.asText() ++ "]" ++ zansi.reset;
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
