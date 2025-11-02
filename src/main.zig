@@ -385,7 +385,7 @@ const ArgsError = error{
 };
 
 // string statics
-const usage = color.Fg.static.blue ++
+const usage = color.fg.static.blue ++
     \\
     \\    Usage: 
     \\      clade [-p] TARGET_DATE START_YEAR END_YEAR
@@ -398,7 +398,7 @@ const usage = color.Fg.static.blue ++
     \\
 ++ zansi.reset;
 
-const error_message = color.Fg.static.red ++ style.static.blink ++ style.static.bold ++
+const error_message = color.fg.static.red ++ style.static.blink ++ style.static.bold ++
     "\n> ERROR: {s} - {s} <---\n" ++ zansi.reset;
 
 // Writers
@@ -425,10 +425,10 @@ fn myLogFn(
     args: anytype,
 ) void {
     const level_txt = switch (message_level) {
-        std.log.Level.err => color.Fg.static.red,
-        std.log.Level.warn => color.Fg.static.yellow,
-        std.log.Level.debug => color.Fg.static.magenta,
-        std.log.Level.info => color.Fg.static.cyan,
+        std.log.Level.err => color.fg.static.red,
+        std.log.Level.warn => color.fg.static.yellow,
+        std.log.Level.debug => color.fg.static.magenta,
+        std.log.Level.info => color.fg.static.cyan,
     } ++ "[" ++ comptime message_level.asText() ++ "]" ++ zansi.reset;
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
 
